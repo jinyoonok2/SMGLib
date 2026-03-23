@@ -23,11 +23,11 @@ def initialize():
 
     return agent_list
 
-def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True):
+def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None):
 
     # os.sched_setaffinity(0,[0,1,2,3,4,5,6,7])
     
-    SET.initialize_set(Num, ini_x, ini_v, target,r_min,epsilon,h,K,episodes, wall_collision_multiplier)
+    SET.initialize_set(Num, ini_x, ini_v, target,r_min,epsilon,h,K,episodes, wall_collision_multiplier, env_type)
 
     obj = {}
 
@@ -70,6 +70,9 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     all_goals_reached = False
     completion_step = episodes  # Default to full episodes if not all reach goals
 
+    # Track which drones were yielding in the previous step (for MPC reset on release)
+    pad_previously_yielding = set()
+
     # the main loop
     start =datetime.datetime.now()
     end = start
@@ -78,17 +81,70 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         end_last=end
 
 
+        # Clear landed drones from the airspace so they don't block the pad
+        if env_type == 'landing_pad':
+            for j in range(num_moving_drones):
+                if target_reached[j]:
+                    agent_list[j].p = np.array([100.0, 100.0])
+                    agent_list[j].v = np.zeros(2)
+                    agent_list[j].state = np.append(agent_list[j].p, agent_list[j].v)
+                    # Update pre_traj so obstacle_list doesn't retain old trajectory near pad
+                    agent_list[j].pre_traj = np.tile(np.array([100.0, 100.0]), (agent_list[j].K+1, 1))
+
         obstacle_list=get_obstacle_list(agent_list,SET.Num)
 
-        # Separate moving and stationary agents
-        moving_agents = agent_list[:num_moving_drones]
-        stationary_agents = agent_list[num_moving_drones:]
+        # Determine which drones to run MPC on this step
+        yielding_drones = set()
+        if env_type == 'landing_pad':
+            pad_center = np.array([0.0, 0.0])
+            active_drones = [j for j in range(num_moving_drones) if not target_reached[j]]
+            
+            if len(active_drones) > 1:
+                distances = [(j, np.linalg.norm(agent_list[j].p - pad_center)) for j in active_drones]
+                distances.sort(key=lambda x: x[1])
+                allowed_idx = distances[0][0]
+                
+                for j in active_drones:
+                    if j != allowed_idx:
+                        yielding_drones.add(j)
+                        # Freeze yielding drones — no MPC, just hold position
+                        agent_list[j].v = np.zeros(2)
+                        agent_list[j].state = np.append(agent_list[j].p, agent_list[j].v)
+                
+                if verbose and i % 20 == 0:
+                    print(f"  Pad yielding: drone {allowed_idx} approaching (dist={distances[0][1]:.2f}), "
+                          f"others holding: {[d[0] for d in distances[1:]]}")
 
-        # run one step for moving agents only
-        moving_agents = run_one_step(moving_agents, obstacle_list, verbose)
+        # Build list of drones to process (exclude landed and yielding)
+        process_indices = [j for j in range(num_moving_drones)
+                          if not target_reached[j] and j not in yielding_drones]
+        
+        # Reset MPC warm-start for drones just released from yielding
+        for j in process_indices:
+            if j in pad_previously_yielding:
+                agent_list[j].pre_traj = np.tile(agent_list[j].p, (agent_list[j].K+1, 1))
+                agent_list[j].cost_index = 0
+                if verbose:
+                    print(f"  Drone {j} released from holding — MPC reset")
+        pad_previously_yielding = yielding_drones.copy()
 
-        # update the main agent_list
-        agent_list = moving_agents + stationary_agents
+        # Run MPC only for active, non-yielding drones
+        if process_indices:
+            process_agents = [agent_list[j] for j in process_indices]
+            process_agents = run_one_step(process_agents, obstacle_list, verbose)
+            for idx, j in enumerate(process_indices):
+                agent_list[j] = process_agents[idx]
+
+        # Manually update position history for drones that skipped MPC
+        # (post_processing only runs inside run_one_agent, so skipped drones
+        #  have stale position arrays, causing misaligned animation frames)
+        if env_type == 'landing_pad':
+            for j in range(num_moving_drones):
+                if j not in process_indices:
+                    if target_reached[j]:
+                        agent_list[j].position = np.block([[agent_list[j].position], [target[j]]])
+                    else:
+                        agent_list[j].position = np.block([[agent_list[j].position], [agent_list[j].p]])
 
         # print
         end = datetime.datetime.now()
@@ -102,8 +158,9 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
                 # Check if the robot has reached its target
                 if not target_reached[j]:
                     distance_to_target = np.linalg.norm(agent.p - target[j])
-                    # Use a strict threshold - robots must be very close to target
-                    if distance_to_target < 0.02:  # 0.02 units threshold (very strict)
+                    # Use appropriate threshold based on environment
+                    goal_threshold = 0.05 if env_type == 'landing_pad' else 0.02
+                    if distance_to_target < goal_threshold:
                         target_reached[j] = True
                         individual_completion_times[j] = i  # Record the exact step when goal was reached
                         if verbose:
@@ -146,8 +203,8 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
         obj[i] = data_capture(SET.pos_list, SET.position_list, SET.terminal_index_list)
 
-       # if ReachGoal:        
-            #break
+        if all_goals_reached:
+            break
             
         #ReachGoal=check_reach_target(agent_list)
 

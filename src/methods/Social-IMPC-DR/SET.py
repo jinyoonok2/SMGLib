@@ -1,6 +1,6 @@
 import numpy as np
 
-def initialize_set(NUM, INI_X, INI_V, TARGET, R_MIN, EPSILON, H, KK, EPISODES, WALL_COLLISION_MULTIPLIER=2.0):
+def initialize_set(NUM, INI_X, INI_V, TARGET, R_MIN, EPSILON, H, KK, EPISODES, WALL_COLLISION_MULTIPLIER=2.0, ENV_TYPE=None):
 
 ###################
 #  personal set   #
@@ -32,6 +32,9 @@ def initialize_set(NUM, INI_X, INI_V, TARGET, R_MIN, EPSILON, H, KK, EPISODES, W
     
     global wall_collision_multiplier
     wall_collision_multiplier = WALL_COLLISION_MULTIPLIER
+    
+    global env_type
+    env_type = ENV_TYPE
     
 # initial set
     global ini_x   # intial position

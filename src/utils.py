@@ -453,6 +453,40 @@ class StandardizedEnvironment:
         return filtered_walls
     
     @classmethod
+    def get_landing_pad_obstacles(cls):
+        """
+        Get standardized landing pad obstacle layout.
+        Open airspace with a boundary perimeter and a single landing pad at (0, 0).
+        Boundary walls form a rectangular perimeter that funnels drones inward.
+        """
+        walls = []
+        pad_center = np.array([0.0, 0.0])
+        
+        # Perimeter boundary walls (rectangular airspace boundary)
+        # Left wall
+        for y in np.linspace(-4.0, 4.0, 10):
+            walls.append(np.array([-5.0, y]))
+        # Right wall
+        for y in np.linspace(-4.0, 4.0, 10):
+            walls.append(np.array([5.0, y]))
+        # Bottom wall with gap for approach
+        for x in np.linspace(-5.0, -1.5, 5):
+            walls.append(np.array([x, -4.0]))
+        for x in np.linspace(1.5, 5.0, 5):
+            walls.append(np.array([x, -4.0]))
+        # Top wall with gap for approach
+        for x in np.linspace(-5.0, -1.5, 5):
+            walls.append(np.array([x, 4.0]))
+        for x in np.linspace(1.5, 5.0, 5):
+            walls.append(np.array([x, 4.0]))
+        
+        return walls
+    
+    # Landing pad center coordinate (used by other modules)
+    LANDING_PAD_CENTER = np.array([0.0, 0.0])
+    LANDING_PAD_RADIUS = 0.5  # Only one drone may occupy this radius at a time
+    
+    @classmethod
     def get_standard_agent_positions(cls, env_type, num_agents=2):
         """
         Get standardized agent start and goal positions for each environment type.
@@ -476,6 +510,15 @@ class StandardizedEnvironment:
             positions = [
                 {'start': [-4.0, corridor_center - 0.5], 'goal': [4.0, corridor_center + 0.5]},  # Offset horizontal
                 {'start': [corridor_center - 0.5, -4.0], 'goal': [corridor_center + 0.5, 4.0]}   # Offset vertical
+            ]
+        elif env_type == 'landing_pad':
+            # All drones converge on the single landing pad at (0, 0)
+            pad = [0.0, 0.0]
+            positions = [
+                {'start': [-4.0,  2.0], 'goal': pad},  # Approach from upper-left
+                {'start': [ 4.0,  2.0], 'goal': pad},  # Approach from upper-right
+                {'start': [-4.0, -2.0], 'goal': pad},  # Approach from lower-left
+                {'start': [ 4.0, -2.0], 'goal': pad},  # Approach from lower-right
             ]
         else:
             # Generic positions
@@ -507,8 +550,18 @@ class StandardizedEnvironment:
                 obstacles = cls.get_hallway_obstacles()
             elif env_type == 'intersection':
                 obstacles = cls.get_intersection_obstacles()
+            elif env_type == 'landing_pad':
+                obstacles = cls.get_landing_pad_obstacles()
             else:
                 obstacles = []
+            
+            # Draw landing pad marker if applicable
+            if env_type == 'landing_pad':
+                pad_circle = patches.Circle(cls.LANDING_PAD_CENTER, radius=cls.LANDING_PAD_RADIUS,
+                                           facecolor='yellow', edgecolor='red', linewidth=2, alpha=0.4, zorder=1)
+                ax.add_patch(pad_circle)
+                ax.plot(cls.LANDING_PAD_CENTER[0], cls.LANDING_PAD_CENTER[1], 'P',
+                       color='red', markersize=15, zorder=2)
             
             # Plot obstacles as gray circles
             for obs in obstacles:
@@ -602,6 +655,8 @@ def get_standardized_obstacles(env_type):
         return StandardizedEnvironment.get_hallway_obstacles()
     elif env_type == 'intersection':
         return StandardizedEnvironment.get_intersection_obstacles()
+    elif env_type == 'landing_pad':
+        return StandardizedEnvironment.get_landing_pad_obstacles()
     else:
         return []
 

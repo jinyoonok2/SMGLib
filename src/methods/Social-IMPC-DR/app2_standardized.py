@@ -65,12 +65,10 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     # Build positions per frame from agent_list
     max_frames = max(len(a.position) for a in agent_list) if agent_list else 0
 
-    # Infer dynamic/obstacles if available: treat stationary agents as obstacles
-    def is_stationary(a):
-        return len(a.position) > 1 and all(np.allclose(a.position[0], p) for p in a.position)
-
-    dynamic_indices = [i for i, a in enumerate(agent_list) if not is_stationary(a)]
-    obstacle_indices = [i for i in range(len(agent_list)) if i not in dynamic_indices]
+    # Use num_moving_agents to separate dynamic vs obstacle agents
+    n_moving = num_moving_agents if num_moving_agents is not None else len(agent_list)
+    dynamic_indices = list(range(n_moving))
+    obstacle_indices = list(range(n_moving, len(agent_list)))
 
     # Use standardized colors
     colors = StandardizedEnvironment.AGENT_COLORS
@@ -78,20 +76,15 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     dyn_scatter = ax.scatter([], [], c=[], s=200, edgecolors='black', linewidths=1, label='Agent')
     obs_scatter = ax.scatter([], [], c='gray', s=200, edgecolors='black', linewidths=1, label='Obstacle')
 
-    # Goals as green stars if each agent has a goal attribute 'goal'
-    goal_points = []
-    for a in agent_list:
+    # Goals as green stars — only for moving agents
+    for i in range(n_moving):
+        a = agent_list[i]
         gp = getattr(a, 'goal', None)
         if gp is not None and len(gp) == 2:
-            goal_points.append(gp)
-        else:
-            goal_points.append(None)
-    for gp in goal_points:
-        if gp is not None:
             ax.plot(gp[0], gp[1], '*', color='green', markersize=12)
 
-    # Create standardized legend
-    legend_handles, legend_labels = StandardizedEnvironment.create_standard_legend(len(dynamic_indices))
+    # Create standardized legend — only moving agents
+    legend_handles, legend_labels = StandardizedEnvironment.create_standard_legend(n_moving)
     ax.legend(legend_handles, legend_labels,
               loc='center left', bbox_to_anchor=(1.01, 0.5), fontsize=12, borderaxespad=0., markerscale=1.2)
     plt.tight_layout()
@@ -167,6 +160,8 @@ def generate_animation_standardized(agent_list, r_min, filename=None, num_moving
             obstacles = StandardizedEnvironment.get_hallway_obstacles()
         elif scenario_type == 'intersection':
             obstacles = StandardizedEnvironment.get_intersection_obstacles()
+        elif scenario_type == 'landing_pad':
+            obstacles = StandardizedEnvironment.get_landing_pad_obstacles()
         else:
             obstacles = []
         
@@ -175,14 +170,19 @@ def generate_animation_standardized(agent_list, r_min, filename=None, num_moving
                           facecolor='gray', edgecolor='black', alpha=0.7)
             ax.add_patch(circle)
         
-        for i, agent in enumerate(agent_list):
-            if num_moving_agents is not None:
-                if i < num_moving_agents:
-                    color = colors[i % len(colors)]
-                else:
-                    color = 'gray'
-            else:
-                color = colors[i % len(colors)]
+        # Draw landing pad marker
+        if scenario_type == 'landing_pad':
+            pad = StandardizedEnvironment.LANDING_PAD_CENTER
+            pad_circle = Circle(pad, radius=StandardizedEnvironment.LANDING_PAD_RADIUS,
+                              facecolor='yellow', edgecolor='red', linewidth=2, alpha=0.4, zorder=1)
+            ax.add_patch(pad_circle)
+            ax.plot(pad[0], pad[1], 'P', color='red', markersize=15, zorder=2)
+        
+        # Only draw moving agents (skip stationary wall agents)
+        n_moving = num_moving_agents if num_moving_agents is not None else len(agent_list)
+        for i in range(n_moving):
+            agent = agent_list[i]
+            color = colors[i % len(colors)]
             
             # Use last known position if step is out of bounds
             pos_index = min(step, len(agent.position) - 1)
@@ -207,10 +207,14 @@ def generate_animation_standardized(agent_list, r_min, filename=None, num_moving
             ax.scatter(agent.position[0][0], agent.position[0][1], marker='s', s=200, 
                       edgecolor='black', facecolor=color)
 
-            # Mark target with a diamond
-            if num_moving_agents is None or i < num_moving_agents:
-                ax.scatter(agent.target[0], agent.target[1], marker='*', s=300, 
-                          edgecolor='black', facecolor=color)
+            # Mark target with a star
+            ax.scatter(agent.target[0], agent.target[1], marker='*', s=300, 
+                      edgecolor='black', facecolor=color)
+        
+        # Add legend showing only moving agents
+        legend_handles, legend_labels = StandardizedEnvironment.create_standard_legend(n_moving)
+        ax.legend(legend_handles, legend_labels,
+                  loc='center left', bbox_to_anchor=(1.01, 0.5), fontsize=10, borderaxespad=0., markerscale=1.0)
         
         fig.canvas.draw()
         image = np.array(fig.canvas.renderer.buffer_rgba())[:, :, :3]
@@ -237,6 +241,8 @@ def setup_standardized_scenario(env_type):
         obstacles = StandardizedEnvironment.get_hallway_obstacles()
     elif env_type == 'intersection':
         obstacles = StandardizedEnvironment.get_intersection_obstacles()
+    elif env_type == 'landing_pad':
+        obstacles = StandardizedEnvironment.get_landing_pad_obstacles()
     else:
         obstacles = []
     
@@ -295,6 +301,12 @@ def main():
         print("- The intersection has corridors with center at (0, 0)")
         print("- Corridor width extends from -2 to 2 in both directions")
         print("- X and Y coordinates should be between -5 and 5")
+    elif env_type == 'landing_pad':
+        print("\nLanding Pad Configuration:")
+        print("- Single landing pad at (0, 0) — all drones share this goal")
+        print("- Only one drone can occupy the pad at a time")
+        print("- Drones should start from different approach directions")
+        print("- X and Y coordinates should be between -4 and 4")
     
     # Get drone positions using standardized positions
     ini_x_moving = []
@@ -332,7 +344,7 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
-    result, agent_list, completion_step = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode)
+    result, agent_list, completion_step = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type)
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:

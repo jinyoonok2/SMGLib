@@ -2,10 +2,14 @@ import cvxpy as cp
 import numpy as np
 from scipy import linalg as lg
 from uav import *
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[3] / 'src'))
+from utils import StandardizedEnvironment
 
 
 
-def GET_cons(agent,obstacle_list, wall_collision_multiplier=2.0):
+def GET_cons(agent,obstacle_list, wall_collision_multiplier=2.0, env_type=None):
     
     P=agent.pre_traj 
     target=agent.target 
@@ -54,7 +58,7 @@ def GET_cons(agent,obstacle_list, wall_collision_multiplier=2.0):
                 effective_r_min = r_min * wall_collision_multiplier  # Use configurable multiplier for walls
             else:
                 effective_r_min = r_min
-
+            
             if(t==len(P)-1):
                 a,b,rho = MBVC_WB(p,p_j,target,effective_r_min,eta,term_overlap)
             else:
