@@ -456,29 +456,27 @@ class StandardizedEnvironment:
     def get_landing_pad_obstacles(cls):
         """
         Get standardized landing pad obstacle layout.
-        Open airspace with a boundary perimeter and a single landing pad at (0, 0).
-        Boundary walls form a rectangular perimeter that funnels drones inward.
+        Open airspace with a sparse boundary perimeter and a single landing pad
+        at (0, 0).  Uses fewer wall agents (corners + midpoints) to keep MPC
+        constraint counts manageable for 3+ drones.
         """
         walls = []
-        pad_center = np.array([0.0, 0.0])
         
-        # Perimeter boundary walls (rectangular airspace boundary)
-        # Left wall
-        for y in np.linspace(-4.0, 4.0, 10):
-            walls.append(np.array([-5.0, y]))
-        # Right wall
-        for y in np.linspace(-4.0, 4.0, 10):
-            walls.append(np.array([5.0, y]))
-        # Bottom wall with gap for approach
-        for x in np.linspace(-5.0, -1.5, 5):
-            walls.append(np.array([x, -4.0]))
-        for x in np.linspace(1.5, 5.0, 5):
-            walls.append(np.array([x, -4.0]))
-        # Top wall with gap for approach
-        for x in np.linspace(-5.0, -1.5, 5):
-            walls.append(np.array([x, 4.0]))
-        for x in np.linspace(1.5, 5.0, 5):
-            walls.append(np.array([x, 4.0]))
+        # Sparse perimeter: corner posts + midpoint posts (4 corners + 4 midpoints = 8 walls)
+        # Left wall (x = -5): top, mid, bottom
+        walls.append(np.array([-5.0,  3.0]))
+        walls.append(np.array([-5.0,  0.0]))
+        walls.append(np.array([-5.0, -3.0]))
+        # Right wall (x = 5): top, mid, bottom
+        walls.append(np.array([ 5.0,  3.0]))
+        walls.append(np.array([ 5.0,  0.0]))
+        walls.append(np.array([ 5.0, -3.0]))
+        # Bottom wall (y = -4): left and right of center gap
+        walls.append(np.array([-3.0, -4.0]))
+        walls.append(np.array([ 3.0, -4.0]))
+        # Top wall (y = 4): left and right of center gap
+        walls.append(np.array([-3.0,  4.0]))
+        walls.append(np.array([ 3.0,  4.0]))
         
         return walls
     
@@ -513,12 +511,14 @@ class StandardizedEnvironment:
             ]
         elif env_type == 'landing_pad':
             # All drones converge on the single landing pad at (0, 0)
+            # Starts through approach gaps (top/bottom center gaps, and inner
+            # airspace) to avoid MPC infeasibility from wall constraints.
             pad = [0.0, 0.0]
             positions = [
-                {'start': [-4.0,  2.0], 'goal': pad},  # Approach from upper-left
-                {'start': [ 4.0,  2.0], 'goal': pad},  # Approach from upper-right
-                {'start': [-4.0, -2.0], 'goal': pad},  # Approach from lower-left
-                {'start': [ 4.0, -2.0], 'goal': pad},  # Approach from lower-right
+                {'start': [ 0.0,  3.0], 'goal': pad},  # Approach from top (through gap)
+                {'start': [ 0.0, -3.0], 'goal': pad},  # Approach from bottom (through gap)
+                {'start': [-2.5,  0.0], 'goal': pad},  # Approach from left (inner airspace)
+                {'start': [ 2.5,  0.0], 'goal': pad},  # Approach from right (inner airspace)
             ]
         else:
             # Generic positions

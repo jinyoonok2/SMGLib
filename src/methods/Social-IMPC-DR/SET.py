@@ -1,12 +1,15 @@
 import numpy as np
 
-def initialize_set(NUM, INI_X, INI_V, TARGET, R_MIN, EPSILON, H, KK, EPISODES, WALL_COLLISION_MULTIPLIER=2.0, ENV_TYPE=None):
+def initialize_set(NUM, INI_X, INI_V, TARGET, R_MIN, EPSILON, H, KK, EPISODES, WALL_COLLISION_MULTIPLIER=2.0, ENV_TYPE=None, NUM_MOVING_DRONES=None):
 
 ###################
 #  personal set   #
 ###################
     global Num     # the number of agents
     Num = NUM
+
+    global num_moving_drones  # how many agents are real drones (vs wall obstacles)
+    num_moving_drones = NUM_MOVING_DRONES if NUM_MOVING_DRONES is not None else NUM
 
     global K       # recceding horizon
     K = KK

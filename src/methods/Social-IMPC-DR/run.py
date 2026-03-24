@@ -113,13 +113,15 @@ def run_cvxp(agent, verbose=True):
     Theta_u = agent.Theta_u
     Theta_v=agent.Theta_v
     Xi = agent.Xi                             #for replicating simulation 
-    if 2 <= agent.index <= 21:                #for doorway 2 <= agent.index <= 5
-        agent.Umax = 0                        # for hallway 2 <= agent.index <= 11
-        Umax = 0                              # for intersection 2 <= agent.index <= 21
+    # Zero out control for wall/obstacle agents (index >= num_moving_drones)
+    wall_start = getattr(SET, 'num_moving_drones', 2)
+    if wall_start <= agent.index <= 21:
+        agent.Umax = 0
+        Umax = 0
     else:
         Umax = agent.Umax
     Umax = agent.Umax
-    if 2 <= agent.index <= 21:                     
+    if wall_start <= agent.index <= 21:
         agent.Vmax = 0
         Vmax = 0
     else:

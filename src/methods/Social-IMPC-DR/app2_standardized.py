@@ -337,6 +337,29 @@ def main():
     
     ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
+    # --- Phase 2: Cargo priority configuration (landing_pad only) ---
+    cargo_configs = None
+    if env_type == 'landing_pad':
+        print("\n--- Cargo Priority Configuration ---")
+        print("Cargo types: organ, blood_product, medication, equipment")
+        print("Patient acuity: critical, urgent, routine")
+        use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
+        if use_priority.lower() == 'y':
+            cargo_configs = []
+            # Default configs for Demo 2: 3 drones, mixed cargo
+            default_cargos = [
+                {'cargo_type': 'organ',     'time_to_expiry': 60.0,  'patient_acuity': 'critical'},
+                {'cargo_type': 'equipment', 'time_to_expiry': 200.0, 'patient_acuity': 'routine'},
+                {'cargo_type': 'medication','time_to_expiry': 150.0, 'patient_acuity': 'urgent'},
+            ]
+            for i in range(num_moving_drones):
+                dfl = default_cargos[i] if i < len(default_cargos) else default_cargos[-1]
+                print(f"\n  Drone {i} cargo:")
+                ct = get_input(f"    Cargo type", dfl['cargo_type'], str)
+                te = get_input(f"    Time to expiry (steps)", dfl['time_to_expiry'], float)
+                pa = get_input(f"    Patient acuity", dfl['patient_acuity'], str)
+                cargo_configs.append({'cargo_type': ct, 'time_to_expiry': te, 'patient_acuity': pa})
+
     # --- Combine moving and stationary agents ---
     ini_x = ini_x_moving + obstacle_agents_x
     ini_v = ini_v_moving + obstacle_agents_v
@@ -344,7 +367,7 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
-    result, agent_list, completion_step = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type)
+    result, agent_list, completion_step = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs)
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:
