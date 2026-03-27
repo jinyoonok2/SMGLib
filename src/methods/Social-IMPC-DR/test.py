@@ -7,6 +7,8 @@ import pickle
 import copy
 import os
 import csv
+from landing_pad import LandingPadController
+from priority_manager import PriorityManager
 
 def data_capture(a, b, c):
     data = {
@@ -16,18 +18,24 @@ def data_capture(a, b, c):
     }
     return data
 
-def initialize():
+def initialize(cargo_configs=None):
     agent_list=[]
     for i in range(SET.Num):
-        agent_list+=[ uav(i,SET.ini_x[i],SET.ini_v[i],SET.target[i],SET.K) ]
+        kwargs = {}
+        if cargo_configs is not None and i < len(cargo_configs):
+            cfg = cargo_configs[i]
+            kwargs['cargo_type'] = cfg.get('cargo_type', 'equipment')
+            kwargs['time_to_expiry'] = cfg.get('time_to_expiry', 300.0)
+            kwargs['patient_acuity'] = cfg.get('patient_acuity', 'routine')
+        agent_list+=[ uav(i,SET.ini_x[i],SET.ini_v[i],SET.target[i],SET.K, **kwargs) ]
 
     return agent_list
 
-def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None):
+def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None):
 
     # os.sched_setaffinity(0,[0,1,2,3,4,5,6,7])
     
-    SET.initialize_set(Num, ini_x, ini_v, target,r_min,epsilon,h,K,episodes, wall_collision_multiplier, env_type)
+    SET.initialize_set(Num, ini_x, ini_v, target,r_min,epsilon,h,K,episodes, wall_collision_multiplier, env_type, NUM_MOVING_DRONES=num_moving_drones)
 
     obj = {}
 
@@ -35,7 +43,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
     episodes=SET.episodes
     
-    agent_list=initialize()
+    agent_list=initialize(cargo_configs=cargo_configs)
 
     collect_data(agent_list)
 
@@ -73,6 +81,15 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     # Track which drones were yielding in the previous step (for MPC reset on release)
     pad_previously_yielding = set()
 
+    # Pick the appropriate controller for landing pad scenarios
+    if env_type == 'landing_pad':
+        if cargo_configs:
+            controller = PriorityManager(cargo_configs)   # Phase 2
+        else:
+            controller = LandingPadController()            # Phase 1
+    else:
+        controller = None
+
     # the main loop
     start =datetime.datetime.now()
     end = start
@@ -80,52 +97,36 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     for i in range(1,episodes+1):
         end_last=end
 
-
-        # Clear landed drones from the airspace so they don't block the pad
-        if env_type == 'landing_pad':
-            for j in range(num_moving_drones):
-                if target_reached[j]:
-                    agent_list[j].p = np.array([100.0, 100.0])
-                    agent_list[j].v = np.zeros(2)
-                    agent_list[j].state = np.append(agent_list[j].p, agent_list[j].v)
-                    # Update pre_traj so obstacle_list doesn't retain old trajectory near pad
-                    agent_list[j].pre_traj = np.tile(np.array([100.0, 100.0]), (agent_list[j].K+1, 1))
+        # Landing-pad lifecycle management (via controller)
+        if controller is not None:
+            controller.cleanup_landed(agent_list, target_reached,
+                                      num_moving_drones, SET.K)
 
         obstacle_list=get_obstacle_list(agent_list,SET.Num)
 
         # Determine which drones to run MPC on this step
         yielding_drones = set()
-        if env_type == 'landing_pad':
-            pad_center = np.array([0.0, 0.0])
-            active_drones = [j for j in range(num_moving_drones) if not target_reached[j]]
-            
+        if controller is not None:
+            active_drones = [j for j in range(num_moving_drones)
+                            if not target_reached[j]]
+
             if len(active_drones) > 1:
-                distances = [(j, np.linalg.norm(agent_list[j].p - pad_center)) for j in active_drones]
-                distances.sort(key=lambda x: x[1])
-                allowed_idx = distances[0][0]
-                
-                for j in active_drones:
-                    if j != allowed_idx:
-                        yielding_drones.add(j)
-                        # Freeze yielding drones — no MPC, just hold position
-                        agent_list[j].v = np.zeros(2)
-                        agent_list[j].state = np.append(agent_list[j].p, agent_list[j].v)
-                
-                if verbose and i % 20 == 0:
-                    print(f"  Pad yielding: drone {allowed_idx} approaching (dist={distances[0][1]:.2f}), "
-                          f"others holding: {[d[0] for d in distances[1:]]}")
+                result = controller.select_active_drone(
+                    agent_list, active_drones, i, verbose
+                )
+                yielding_drones = result["yielding"]
+                controller.freeze_yielding(agent_list, yielding_drones)
 
         # Build list of drones to process (exclude landed and yielding)
         process_indices = [j for j in range(num_moving_drones)
                           if not target_reached[j] and j not in yielding_drones]
         
         # Reset MPC warm-start for drones just released from yielding
-        for j in process_indices:
-            if j in pad_previously_yielding:
-                agent_list[j].pre_traj = np.tile(agent_list[j].p, (agent_list[j].K+1, 1))
-                agent_list[j].cost_index = 0
-                if verbose:
-                    print(f"  Drone {j} released from holding — MPC reset")
+        if controller is not None:
+            released = controller.get_released_drones(
+                process_indices, pad_previously_yielding
+            )
+            controller.reset_mpc(agent_list, released, verbose)
         pad_previously_yielding = yielding_drones.copy()
 
         # Run MPC only for active, non-yielding drones
@@ -135,21 +136,21 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
             for idx, j in enumerate(process_indices):
                 agent_list[j] = process_agents[idx]
 
-        # Manually update position history for drones that skipped MPC
-        # (post_processing only runs inside run_one_agent, so skipped drones
-        #  have stale position arrays, causing misaligned animation frames)
-        if env_type == 'landing_pad':
-            for j in range(num_moving_drones):
-                if j not in process_indices:
-                    if target_reached[j]:
-                        agent_list[j].position = np.block([[agent_list[j].position], [target[j]]])
-                    else:
-                        agent_list[j].position = np.block([[agent_list[j].position], [agent_list[j].p]])
+        # Update position history for drones that skipped MPC
+        if controller is not None:
+            controller.update_idle_positions(
+                agent_list, process_indices, target_reached,
+                target, num_moving_drones
+            )
 
         # print
         end = datetime.datetime.now()
         if verbose:
             print("Step %s have finished, running time is %s"%(i,end-end_last))
+
+        # Per-step hook (Phase 2: decrement time_to_expiry; Phase 1: no-op)
+        if controller is not None:
+            controller.step_update(agent_list, target_reached, num_moving_drones)
     
 
         # Store velocity data

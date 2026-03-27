@@ -7,7 +7,9 @@ class uav():
 
 
     # initialization
-    def __init__(self,index,ini_x,ini_v,target,ini_K=11):
+    def __init__(self,index,ini_x,ini_v,target,ini_K=11,
+                 cargo_type='equipment', time_to_expiry=300.0,
+                 patient_acuity='routine'):
         
         # the index of this agent 
         self.index=index
@@ -20,6 +22,11 @@ class uav():
 
         # target
         self.target=target.copy()
+
+        # ── Phase 2: cargo & priority attributes ──
+        self.cargo_type = cargo_type            # 'organ' | 'blood_product' | 'medication' | 'equipment'
+        self.time_to_expiry = float(time_to_expiry)  # steps remaining before cargo expires
+        self.patient_acuity = patient_acuity    # 'critical' | 'urgent' | 'routine'
 
         # current position
         self.p=ini_x.copy()
