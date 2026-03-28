@@ -1,5 +1,6 @@
 """Quick test script for Phase 2 priority-based landing pad simulation."""
 import numpy as np
+import json
 import sys
 from pathlib import Path
 
@@ -23,11 +24,10 @@ ini_x = ini_x_m + obstacles
 ini_v = ini_v_m + [np.zeros(2) for _ in obstacles]
 target = target_m + obstacles
 
-cargo_configs = [
-    {'cargo_type': 'organ',     'time_to_expiry': 60.0,  'patient_acuity': 'critical'},
-    {'cargo_type': 'equipment', 'time_to_expiry': 200.0, 'patient_acuity': 'routine'},
-    {'cargo_type': 'medication','time_to_expiry': 150.0, 'patient_acuity': 'urgent'},
-]
+cargo_cfg_path = Path(__file__).resolve().parent / 'cargo_configs.json'
+with open(cargo_cfg_path, 'r') as f:
+    cargo_cfg = json.load(f)
+cargo_configs = cargo_cfg['presets']
 
 print(f"Num agents: {len(ini_x)} (3 moving + {len(obstacles)} walls)")
 for i, c in enumerate(cargo_configs):

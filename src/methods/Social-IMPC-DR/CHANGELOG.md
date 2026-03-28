@@ -14,12 +14,23 @@ closest, Phase 2 picks the highest-priority cargo.
 ### Full pipeline
 
 ```
+cargo_configs.json            ← EXTERNAL CONFIG FILE
+  │                              Drone cargo presets, valid values,
+  │                              UAV defaults. Edit here to change
+  │                              drone profiles — no code changes.
+  │
+  ▼
 app2_standardized.py          ← TOP-LEVEL ENTRY POINT
   │
-  ├── 1. User picks scenario, drone count, cargo config
+  ├── 1. Loads cargo_configs.json (presets + valid_values)
+  ├── 2. User picks scenario, drone count, cargo config
   │
-  ├── 2. Calls PLAN() ────────► test.py (simulation engine)
-  │                               │
+  ├── 3. Calls PLAN(cargo_configs=[...]) ──► test.py (simulation engine)
+  │                                            │
+  │                  Receives cargo_configs    │
+  │                  from caller (does NOT     │
+  │                  load config file itself)  │
+  │                                            │
   │                               ├── Creates drones ─────► uav.py
   │                               │                           Data object: position,
   │                               │                           velocity, cargo type,
@@ -42,8 +53,16 @@ app2_standardized.py          ← TOP-LEVEL ENTRY POINT
   │
   │         PLAN() returns agent_list with full position history
   │
-  └── 3. Calls generate_animation_standardized()
+  └── 4. Calls generate_animation_standardized()
           └── Reads position history → renders frames → saves .html/.gif/.avi
+
+
+Alternate entry (standalone test, no UI):
+
+cargo_configs.json  ──►  test_phase2.py  ──►  PLAN() in test.py
+                         Loads presets,        Same simulation engine,
+                         skips interactive     just no animation.
+                         prompt.
 ```
 
 ### One simulation step
@@ -100,6 +119,7 @@ Each subclass only overrides the methods it changes.
 | `priority.py` | 2 | `priority_score()` and `rank_drones()` — standalone scoring math |
 | `priority_manager.py` | 2 | `PriorityManager(LandingPadController)` — priority-based policy, expiry countdown |
 | `test_phase2.py` | 2 | Standalone 3-drone test script (no animation, quick verification) |
+| `cargo_configs.json` | 2 | External drone config — presets, valid values, UAV defaults. Loaded by `app2_standardized.py` and `test_phase2.py`; `test.py` receives configs via function args, not direct file access. |
 | `docs/PROJECT_GUIDELINE.md` | 1 | Full project description with 5-phase roadmap |
 
 ---
