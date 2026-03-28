@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import cv2
 import os
+import json
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.animation import FuncAnimation
@@ -340,18 +341,19 @@ def main():
     # --- Phase 2: Cargo priority configuration (landing_pad only) ---
     cargo_configs = None
     if env_type == 'landing_pad':
+        # Load cargo config from external JSON
+        cargo_cfg_path = Path(__file__).resolve().parent / 'cargo_configs.json'
+        with open(cargo_cfg_path, 'r') as f:
+            cargo_cfg = json.load(f)
+        valid = cargo_cfg['valid_values']
+        default_cargos = cargo_cfg['presets']
+
         print("\n--- Cargo Priority Configuration ---")
-        print("Cargo types: organ, blood_product, medication, equipment")
-        print("Patient acuity: critical, urgent, routine")
+        print(f"Cargo types: {', '.join(valid['cargo_types'])}")
+        print(f"Patient acuity: {', '.join(valid['patient_acuity_levels'])}")
         use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
         if use_priority.lower() == 'y':
             cargo_configs = []
-            # Default configs for Demo 2: 3 drones, mixed cargo
-            default_cargos = [
-                {'cargo_type': 'organ',     'time_to_expiry': 60.0,  'patient_acuity': 'critical'},
-                {'cargo_type': 'equipment', 'time_to_expiry': 200.0, 'patient_acuity': 'routine'},
-                {'cargo_type': 'medication','time_to_expiry': 150.0, 'patient_acuity': 'urgent'},
-            ]
             for i in range(num_moving_drones):
                 dfl = default_cargos[i] if i < len(default_cargos) else default_cargos[-1]
                 print(f"\n  Drone {i} cargo:")

@@ -24,9 +24,9 @@ def initialize(cargo_configs=None):
         kwargs = {}
         if cargo_configs is not None and i < len(cargo_configs):
             cfg = cargo_configs[i]
-            kwargs['cargo_type'] = cfg.get('cargo_type', 'equipment')
-            kwargs['time_to_expiry'] = cfg.get('time_to_expiry', 300.0)
-            kwargs['patient_acuity'] = cfg.get('patient_acuity', 'routine')
+            kwargs['cargo_type'] = cfg['cargo_type']
+            kwargs['time_to_expiry'] = cfg['time_to_expiry']
+            kwargs['patient_acuity'] = cfg['patient_acuity']
         agent_list+=[ uav(i,SET.ini_x[i],SET.ini_v[i],SET.target[i],SET.K, **kwargs) ]
 
     return agent_list

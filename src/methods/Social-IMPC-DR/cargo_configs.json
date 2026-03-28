@@ -1,0 +1,16 @@
+{
+    "uav_defaults": {
+        "cargo_type": "equipment",
+        "time_to_expiry": 300.0,
+        "patient_acuity": "routine"
+    },
+    "valid_values": {
+        "cargo_types": ["organ", "blood_product", "medication", "equipment"],
+        "patient_acuity_levels": ["critical", "urgent", "routine"]
+    },
+    "presets": [
+        {"cargo_type": "organ",      "time_to_expiry": 60.0,  "patient_acuity": "critical"},
+        {"cargo_type": "equipment",  "time_to_expiry": 200.0, "patient_acuity": "routine"},
+        {"cargo_type": "medication", "time_to_expiry": 150.0, "patient_acuity": "urgent"}
+    ]
+}
