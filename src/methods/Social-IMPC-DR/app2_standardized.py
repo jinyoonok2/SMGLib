@@ -257,110 +257,159 @@ def setup_standardized_scenario(env_type):
 def main():
     env_type = None
     verbose_mode = True  # Default to verbose for backwards compatibility
+    scenario_config = None
     
     if len(sys.argv) > 1:
         env_type = sys.argv[1]
     
     if len(sys.argv) > 2:
-        verbose_arg = sys.argv[2]
-        verbose_mode = (verbose_arg == '--verbose')
+        # Check if second arg is a scenario config file or --verbose flag
+        arg2 = sys.argv[2]
+        if arg2.endswith('.json'):
+            cfg_path = Path(arg2)
+            if not cfg_path.is_absolute():
+                cfg_path = Path(__file__).resolve().parent / arg2
+            with open(cfg_path, 'r') as f:
+                scenario_config = json.load(f)
+            env_type = scenario_config['env_type']
+            verbose_mode = scenario_config.get('verbose', True)
+        else:
+            verbose_mode = (arg2 == '--verbose')
+    
+    if len(sys.argv) > 3:
+        verbose_mode = (sys.argv[3] == '--verbose')
 
     # Use standardized scenario setup
     obstacle_agents_x, obstacle_agents_v, obstacle_agents_target = setup_standardized_scenario(env_type)
     
-    # --- Get User Input for Simulation ---
+    if scenario_config:
+        # ---- Config-file mode: use parameters from file, skip all prompts ----
+        num_moving_drones = scenario_config['num_moving_drones']
+        min_radius = scenario_config['min_radius']
+        wall_collision_multiplier = scenario_config['wall_collision_multiplier']
+        epsilon = scenario_config['epsilon']
+        step_size = scenario_config['step_size']
+        k_value = scenario_config['k_value']
+        max_steps = scenario_config['max_steps']
 
-    # Get parameters for the moving drones
-    num_moving_drones = get_input("Enter number of moving drones", 2, int)
-    
-    # Get simulation parameters from user
-    min_radius = get_input("Enter minimum distance between drones", StandardizedEnvironment.DEFAULT_COLLISION_DISTANCE, float)
-    
-    # Add configurable wall collision distance
-    wall_collision_multiplier = get_input("Enter wall collision distance multiplier (1.5-3.0 recommended)", 2.0, float)
-    
-    epsilon = get_input("Enter epsilon value", 0.1, float)
-    step_size = get_input("Enter step size", 0.1, float)
-    k_value = get_input("Enter k value", 10, int)
-    max_steps = get_input("Enter maximum number of steps", 100, int)
-    
-    print("\nConfigure moving drones:")
-    
-    # Print environment-specific instructions using standardized coordinates
-    if env_type == 'doorway':
-        print("\nDoorway Configuration:")
-        print("- The doorway has a vertical wall at x=0 with a gap between y=-2 and y=2")
-        print("- X coordinates should be between -5 and 5")
-        print("- Y coordinates should be between -7 and 7")
-    elif env_type == 'hallway':
-        print("\nHallway Configuration:")
-        print("- The hallway has walls at y=-2 and y=2")
-        print("- Robots should stay between y=-1.5 and y=1.5 (middle of hallway)")
-        print("- X coordinates should be between -5 and 5")
-    elif env_type == 'intersection':
-        print("\nIntersection Configuration:")
-        print("- The intersection has corridors with center at (0, 0)")
-        print("- Corridor width extends from -2 to 2 in both directions")
-        print("- X and Y coordinates should be between -5 and 5")
-    elif env_type == 'landing_pad':
-        print("\nLanding Pad Configuration:")
-        print("- Single landing pad at (0, 0) — all drones share this goal")
-        print("- Only one drone can occupy the pad at a time")
-        print("- Drones should start from different approach directions")
-        print("- X and Y coordinates should be between -4 and 4")
-    
-    # Get drone positions using standardized positions
-    ini_x_moving = []
-    target_moving = []
-    
-    # Get standardized default positions
-    standard_positions = StandardizedEnvironment.get_standard_agent_positions(env_type, num_moving_drones)
-    
-    for i in range(num_moving_drones):
-        print(f"\n--- Agent {i+1} Parameters ---")
-        
-        # Get default values for this drone
-        defaults = standard_positions[i] if i < len(standard_positions) else standard_positions[0]
-        
-        # Get start position
-        start_x = get_input(f"Start X position (default: {defaults['start'][0]})", defaults['start'][0], float)
-        start_y = get_input(f"Start Y position (default: {defaults['start'][1]})", defaults['start'][1], float)
-        
-        # Get goal position  
-        goal_x = get_input(f"Goal X position (default: {defaults['goal'][0]})", defaults['goal'][0], float)
-        goal_y = get_input(f"Goal Y position (default: {defaults['goal'][1]})", defaults['goal'][1], float)
-        
-        # Store positions
-        ini_x_moving.append(np.array([start_x, start_y]))
-        target_moving.append(np.array([goal_x, goal_y]))
-        
-        print(f"Agent {i+1} configured: Start=({start_x}, {start_y}), Goal=({goal_x}, {goal_y})")
-    
-    ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
+        # Read drone positions from config
+        drones = scenario_config['drones']
+        ini_x_moving = [np.array(d['start']) for d in drones]
+        target_moving = [np.array(d['goal']) for d in drones]
+        ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
-    # --- Phase 2: Cargo priority configuration (landing_pad only) ---
-    cargo_configs = None
-    if env_type == 'landing_pad':
-        # Load cargo config from external JSON
-        cargo_cfg_path = Path(__file__).resolve().parent / 'cargo_configs.json'
-        with open(cargo_cfg_path, 'r') as f:
-            cargo_cfg = json.load(f)
-        valid = cargo_cfg['valid_values']
-        default_cargos = cargo_cfg['presets']
+        # Cargo configs — read directly from each drone entry
+        cargo_configs = None
+        if scenario_config.get('use_priority', False) and env_type == 'landing_pad':
+            cargo_configs = [
+                {
+                    'cargo_type': d['cargo_type'],
+                    'time_to_expiry': d['time_to_expiry'],
+                    'patient_acuity': d['patient_acuity']
+                }
+                for d in drones
+            ]
 
-        print("\n--- Cargo Priority Configuration ---")
-        print(f"Cargo types: {', '.join(valid['cargo_types'])}")
-        print(f"Patient acuity: {', '.join(valid['patient_acuity_levels'])}")
-        use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
-        if use_priority.lower() == 'y':
-            cargo_configs = []
-            for i in range(num_moving_drones):
-                dfl = default_cargos[i] if i < len(default_cargos) else default_cargos[-1]
-                print(f"\n  Drone {i} cargo:")
-                ct = get_input(f"    Cargo type", dfl['cargo_type'], str)
-                te = get_input(f"    Time to expiry (steps)", dfl['time_to_expiry'], float)
-                pa = get_input(f"    Patient acuity", dfl['patient_acuity'], str)
-                cargo_configs.append({'cargo_type': ct, 'time_to_expiry': te, 'patient_acuity': pa})
+        print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}")
+        for i, d in enumerate(drones):
+            print(f"  Drone {i}: start={d['start']}, goal={d['goal']}")
+
+    else:
+        # ---- Interactive mode: original prompt-based flow ----
+
+        # Get parameters for the moving drones
+        num_moving_drones = get_input("Enter number of moving drones", 2, int)
+
+        # Get simulation parameters from user
+        min_radius = get_input("Enter minimum distance between drones", StandardizedEnvironment.DEFAULT_COLLISION_DISTANCE, float)
+
+        # Add configurable wall collision distance
+        wall_collision_multiplier = get_input("Enter wall collision distance multiplier (1.5-3.0 recommended)", 2.0, float)
+
+        epsilon = get_input("Enter epsilon value", 0.1, float)
+        step_size = get_input("Enter step size", 0.1, float)
+        k_value = get_input("Enter k value", 10, int)
+        max_steps = get_input("Enter maximum number of steps", 100, int)
+
+        print("\nConfigure moving drones:")
+
+        # Print environment-specific instructions using standardized coordinates
+        if env_type == 'doorway':
+            print("\nDoorway Configuration:")
+            print("- The doorway has a vertical wall at x=0 with a gap between y=-2 and y=2")
+            print("- X coordinates should be between -5 and 5")
+            print("- Y coordinates should be between -7 and 7")
+        elif env_type == 'hallway':
+            print("\nHallway Configuration:")
+            print("- The hallway has walls at y=-2 and y=2")
+            print("- Robots should stay between y=-1.5 and y=1.5 (middle of hallway)")
+            print("- X coordinates should be between -5 and 5")
+        elif env_type == 'intersection':
+            print("\nIntersection Configuration:")
+            print("- The intersection has corridors with center at (0, 0)")
+            print("- Corridor width extends from -2 to 2 in both directions")
+            print("- X and Y coordinates should be between -5 and 5")
+        elif env_type == 'landing_pad':
+            print("\nLanding Pad Configuration:")
+            print("- Single landing pad at (0, 0) — all drones share this goal")
+            print("- Only one drone can occupy the pad at a time")
+            print("- Drones should start from different approach directions")
+            print("- X and Y coordinates should be between -4 and 4")
+
+        # Get drone positions using standardized positions
+        ini_x_moving = []
+        target_moving = []
+
+        # Get standardized default positions
+        standard_positions = StandardizedEnvironment.get_standard_agent_positions(env_type, num_moving_drones)
+
+        for i in range(num_moving_drones):
+            print(f"\n--- Agent {i+1} Parameters ---")
+
+            # Get default values for this drone
+            defaults = standard_positions[i] if i < len(standard_positions) else standard_positions[0]
+
+            # Get start position
+            start_x = get_input(f"Start X position (default: {defaults['start'][0]})", defaults['start'][0], float)
+            start_y = get_input(f"Start Y position (default: {defaults['start'][1]})", defaults['start'][1], float)
+
+            # Get goal position  
+            goal_x = get_input(f"Goal X position (default: {defaults['goal'][0]})", defaults['goal'][0], float)
+            goal_y = get_input(f"Goal Y position (default: {defaults['goal'][1]})", defaults['goal'][1], float)
+
+            # Store positions
+            ini_x_moving.append(np.array([start_x, start_y]))
+            target_moving.append(np.array([goal_x, goal_y]))
+
+            print(f"Agent {i+1} configured: Start=({start_x}, {start_y}), Goal=({goal_x}, {goal_y})")
+
+        ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
+
+        # --- Phase 2: Cargo priority configuration (landing_pad only) ---
+        cargo_configs = None
+        if env_type == 'landing_pad':
+            # Load defaults from phase2 scenario config
+            phase2_cfg_path = Path(__file__).resolve().parent / 'scenarios' / 'phase2_landing_pad.json'
+            with open(phase2_cfg_path, 'r') as f:
+                phase2_cfg = json.load(f)
+            default_cargos = [
+                {'cargo_type': d['cargo_type'], 'time_to_expiry': d['time_to_expiry'], 'patient_acuity': d['patient_acuity']}
+                for d in phase2_cfg['drones']
+            ]
+
+            print("\n--- Cargo Priority Configuration ---")
+            print("Cargo types: organ, blood_product, medication, equipment")
+            print("Patient acuity: critical, urgent, routine")
+            use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
+            if use_priority.lower() == 'y':
+                cargo_configs = []
+                for i in range(num_moving_drones):
+                    dfl = default_cargos[i] if i < len(default_cargos) else default_cargos[-1]
+                    print(f"\n  Drone {i} cargo:")
+                    ct = get_input(f"    Cargo type", dfl['cargo_type'], str)
+                    te = get_input(f"    Time to expiry (steps)", dfl['time_to_expiry'], float)
+                    pa = get_input(f"    Patient acuity", dfl['patient_acuity'], str)
+                    cargo_configs.append({'cargo_type': ct, 'time_to_expiry': te, 'patient_acuity': pa})
 
     # --- Combine moving and stationary agents ---
     ini_x = ini_x_moving + obstacle_agents_x
