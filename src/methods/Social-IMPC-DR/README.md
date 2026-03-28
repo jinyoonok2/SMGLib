@@ -202,7 +202,7 @@ phases:
 
 ---
 
-## Next Phases (For Teammates)
+## Next Phases (This is just for an example, you can build it in a direction you want)
 
 ### Phase 3 — Holding Patterns
 
