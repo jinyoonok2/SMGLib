@@ -1,224 +1,156 @@
 # Changelog — Social-IMPC-DR (Landing Pad Extension)
 
----
-
-## System Overview
-
-### What this project does
-
-A fleet of hospital drones carrying medical cargo must land on a **single
-shared landing pad**.  Only one drone can land at a time, creating a
-bottleneck.  A **policy** decides which drone goes next — Phase 1 picks the
-closest, Phase 2 picks the highest-priority cargo.
-
-### Full pipeline
-
-```
-cargo_configs.json            ← EXTERNAL CONFIG FILE
-  │                              Drone cargo presets, valid values,
-  │                              UAV defaults. Edit here to change
-  │                              drone profiles — no code changes.
-  │
-  ▼
-app2_standardized.py          ← TOP-LEVEL ENTRY POINT
-  │
-  ├── 1. Loads cargo_configs.json (presets + valid_values)
-  ├── 2. User picks scenario, drone count, cargo config
-  │
-  ├── 3. Calls PLAN(cargo_configs=[...]) ──► test.py (simulation engine)
-  │                                            │
-  │                  Receives cargo_configs    │
-  │                  from caller (does NOT     │
-  │                  load config file itself)  │
-  │                                            │
-  │                               ├── Creates drones ─────► uav.py
-  │                               │                           Data object: position,
-  │                               │                           velocity, cargo type,
-  │                               │                           expiry, acuity.
-  │                               │
-  │                               ├── Creates policy ─────► LandingPadController
-  │                               │       │                  or PriorityManager
-  │                               │       │                  Decides WHO flies
-  │                               │       │                  and WHO waits.
-  │                               │       │
-  │                               │       └── Uses ──────► priority.py
-  │                               │                         Pure math: cargo +
-  │                               │                         expiry + distance +
-  │                               │                         acuity → score [0,1].
-  │                               │
-  │                               └── Runs physics ──────► run.py (MPC solver)
-  │                                                         Moves drones toward
-  │                                                         goal. Unchanged from
-  │                                                         original codebase.
-  │
-  │         PLAN() returns agent_list with full position history
-  │
-  └── 4. Calls generate_animation_standardized()
-          └── Reads position history → renders frames → saves .html/.gif/.avi
-
-
-Alternate entry (standalone test, no UI):
-
-cargo_configs.json  ──►  test_phase2.py  ──►  PLAN() in test.py
-                         Loads presets,        Same simulation engine,
-                         skips interactive     just no animation.
-                         prompt.
-```
-
-### One simulation step
-
-```
-Step i begins
-  │
-  ├─ 1. controller.cleanup_landed()       Remove landed drones from the pad
-  ├─ 2. controller.select_active_drone()   Pick ONE drone to fly
-  ├─ 3. controller.freeze_yielding()       Zero velocity for all others
-  ├─ 4. run_one_step(active_drone)         MPC solver moves the chosen drone
-  ├─ 5. controller.update_idle_positions() Keep animation aligned for frozen drones
-  ├─ 6. controller.step_update()           Phase 2: decrement expiry timers
-  └─ 7. Check: did the active drone land?  If all landed → simulation ends
-```
-
-### Policy class hierarchy
-
-```
-LandingPadController              ← Phase 1: closest drone goes first
-    │
-    └── PriorityManager           ← Phase 2: highest priority score goes first
-            │
-            └── (Future phases)   ← Override hooks to add new behavior
-```
-
-Each subclass only overrides the methods it changes.
-`test.py` calls the same interface regardless of which controller is active.
+All notable changes to the Social-IMPC-DR landing pad coordination module.
+For project overview, architecture, and usage instructions, see [README.md](README.md).
 
 ---
 
-## File Reference
+## [Phase 2] — Dynamic Priority Integration
 
-### Original files (pre-existing, from Social-IMPC-DR)
+### Added
+- **`priority.py`** — Standalone scoring module
+  - `priority_score()` → weighted float in [0, 1]
+  - `rank_drones()` → sorted list by descending score
+  - Weights: cargo type 35%, time to expiry 30%, distance 15%, patient acuity 20%
+- **`priority_manager.py`** — `PriorityManager(LandingPadController)`
+  - Overrides `select_active_drone()` to pick highest-priority drone instead of closest
+  - Overrides `step_update()` to decrement `time_to_expiry` each step (urgency increases over time)
+  - Falls back to distance-based selection if no cargo config is present
+- **`test_phase2.py`** — Standalone 3-drone test script (no animation, quick verification)
+- **`scenarios/phase2_landing_pad.json`** — 3-drone scenario config with mixed cargo
+  - Drone 0: organ / critical / 60s expiry
+  - Drone 1: equipment / routine / 200s expiry
+  - Drone 2: medication / urgent / 150s expiry
 
-| File | Original role | What we changed |
-|---|---|---|
-| `uav.py` | Drone agent class — position, velocity, dynamics, MPC state | **Added:** `cargo_type`, `time_to_expiry`, `patient_acuity` attributes (backward-compatible defaults) |
-| `run.py` | Runs MPC solver per drone each step | **Fixed:** replaced hardcoded `if 2 <= index <= 21` with `SET.num_moving_drones` so drone 2+ can actually move |
-| `avoid.py` | Builds pairwise collision avoidance constraints | **Added:** `wall_collision_multiplier` and `env_type` params; stationary robot detection for larger wall margins |
-| `SET.py` | Global simulation parameters | **Added:** `ENV_TYPE`, `num_moving_drones` parameters |
-| `test.py` | Main simulation loop | **Refactored:** delegates to controller classes; accepts `cargo_configs`, `num_moving_drones`, `env_type`; early exit when all drones land |
-| `app2_standardized.py` | Interactive UI → run simulation → generate animation | **Added:** `landing_pad` scenario branch, cargo priority config prompt, legend fix |
-| `src/utils.py` | Environment configs, positions, obstacles | **Added:** `landing_pad` environment type, shared goal at `[0,0]`, wall layout, pad visualization marker |
-| `others.py` | Helper functions for data collection | No changes |
-| `dynamic.py` | Dynamics utilities | No changes |
-| `plot.py` / `plot_standardized.py` | Visualization and animation rendering | No changes |
+### Changed
+- **`uav.py`** — Added `cargo_type`, `time_to_expiry`, `patient_acuity` attributes
+  (backward-compatible; defaults to `None` if not set)
+- **`test.py`** — Controller instantiation now checks `use_priority` flag
+  to choose between `LandingPadController` and `PriorityManager`
+- **`app2_standardized.py`** — Accepts optional scenario config JSON as CLI argument;
+  reads drone cargo attributes from config and passes them to `PLAN()`
 
-### New files (created by us)
-
-| File | Phase | Purpose |
-|---|---|---|
-| `landing_pad.py` | 1 | `LandingPadController` class — mutual exclusion, yielding, cleanup, MPC reset |
-| `priority.py` | 2 | `priority_score()` and `rank_drones()` — standalone scoring math |
-| `priority_manager.py` | 2 | `PriorityManager(LandingPadController)` — priority-based policy, expiry countdown |
-| `test_phase2.py` | 2 | Standalone 3-drone test script (no animation, quick verification) |
-| `cargo_configs.json` | 2 | External drone config — presets, valid values, UAV defaults. Loaded by `app2_standardized.py` and `test_phase2.py`; `test.py` receives configs via function args, not direct file access. |
-| `docs/PROJECT_GUIDELINE.md` | 1 | Full project description with 5-phase roadmap |
+### Results
+- 3 drones, mixed cargo, 1 pad
+- Drone 0 (organ/critical) lands at step 36 — highest priority
+- Drone 2 (medication/urgent) lands at step 67
+- Drone 1 (equipment/routine) lands at step 103
+- 100% success rate, correct priority ordering verified
 
 ---
 
-## Phase 1 — Baseline Bottleneck Simulation
+## [Phase 1] — Baseline Bottleneck Simulation
 
-Introduces a **single landing pad** that all drones share, with a **mutual
-exclusion constraint** — only one drone may approach the pad at a time.
+### Added
+- **`landing_pad.py`** — `LandingPadController` class with mutual exclusion logic
+  - `select_active_drone()` — picks closest active drone; others yield
+  - `freeze_yielding()` — zeros velocity for waiting drones
+  - `cleanup_landed()` — removes landed drones from the simulation area
+  - `reset_mpc()` — warm-start reset when drone transitions yielding → active
+  - `update_idle_positions()` — keeps animation position arrays aligned
+  - `step_update()` — per-step hook (no-op in Phase 1; extensible)
+  - `negotiation_hook()` — pre-selection hook (no-op; override point for Phase 4)
+- **`scenarios/phase1_landing_pad.json`** — 2-drone scenario config, no priority
+- **`src/utils.py`** — Added `landing_pad` environment type with shared goal at
+  `[0,0]`, wall obstacle layout, and pad visualization marker
 
-### `LandingPadController` methods
+### Changed
+- **`run.py`** — Replaced hardcoded `if 2 <= index <= 21` with
+  `SET.num_moving_drones` so drone indices beyond 2 can actually move
+- **`avoid.py`** — Added `wall_collision_multiplier` and `env_type` parameters;
+  stationary robot detection for larger wall safety margins
+- **`SET.py`** — Added `ENV_TYPE` and `num_moving_drones` global parameters
+- **`test.py`** — Refactored simulation loop to delegate to controller classes;
+  accepts `num_moving_drones`, `env_type` parameters; early exit when all drones land
+- **`app2_standardized.py`** — Added `landing_pad` scenario branch and animation legend fix
 
-| Method | What it does |
-|---|---|
-| `select_active_drone()` | Picks the **closest** active drone to proceed; all others yield |
-| `freeze_yielding()` | Zeros velocity for yielding drones (no MPC call) |
-| `cleanup_landed()` | Teleports landed drones to (100, 100) so they don't block the pad |
-| `reset_mpc()` | Warm-start reset when a drone transitions from yielding → active |
-| `update_idle_positions()` | Appends position history for drones that skipped MPC (animation alignment) |
-| `step_update()` | Per-step hook (no-op in Phase 1; overridden in Phase 2) |
-| `negotiation_hook()` | Pre-selection hook (no-op; override in Phase 4 for arbitration) |
+### Fixed
+- Both drones stuck (never reaching pad) — 4× `r_min` inflation in `avoid.py`
+  made MPC infeasible → removed inflation, use turn-based yielding instead
+- Drone 1 blocked by landed Drone 0 at (0,0) — no mechanism to clear landed
+  drones → teleport landed drones to (100, 100)
+- Drone 1 oscillates ~0.2 from goal — stale MPC warm-start after long hold →
+  skip MPC for yielding drones, reset warm-start on release
+- Animation shows both drones moving simultaneously — skipped drones had shorter
+  position arrays → manually append position for idle drones each step
 
-### Bugs fixed during Phase 1
-
-| # | Symptom | Root cause | Fix |
-|---|---------|-----------|-----|
-| 1 | Both drones stuck, never reaching pad | 4× `r_min` inflation in `avoid.py` made MPC infeasible | Removed inflation; use turn-based yielding instead |
-| 2 | Drone 1 blocked by landed Drone 0 at (0,0) | No mechanism to clear landed drones | Teleport landed drones to (100, 100) |
-| 3 | Drone 1 oscillates ~0.2 from goal | Stale MPC warm-start after long hold | Skip MPC for yielding drones; reset warm-start on release |
-| 4 | Animation shows both drones moving simultaneously | Skipped drones had shorter position arrays | Manually append position for skipped drones |
-
-### Phase 1 results
-- 2 drones, 1 landing pad
+### Results
+- 2 drones, 1 pad
 - Drone 0 lands at step 51, Drone 1 lands at step 102
 - 100% success rate
 
 ---
 
-## Phase 2 — Dynamic Priority Integration
+## [Config Evolution] — Scenario Config System
 
-Replaces Phase 1's "closest drone first" policy with a **priority scoring
-system** based on medical cargo criticality.  A farther drone carrying a
-critical organ now lands before a closer drone carrying routine equipment.
+### Added
+- **`scenarios/` directory** — JSON config files that define complete simulation runs
+  (environment type, simulation parameters, drone positions, and cargo attributes)
 
-### `priority.py` — scoring math
+### Removed
+- **`cargo_configs.json`** — Replaced by per-scenario configs in `scenarios/`
+- **`docs/PROJECT_GUIDELINE.md`** — Content consolidated into README.md
 
-| Component | Values |
-|---|---|
-| Cargo weights | organ (1.0), blood_product (0.7), medication (0.4), equipment (0.1) |
-| Acuity scores | critical (1.0), urgent (0.6), routine (0.2) |
-| Factor weights | cargo 35%, expiry 30%, distance 15%, acuity 20% |
-| Functions | `priority_score()` → float [0, 1]; `rank_drones()` → sorted list |
-
-### `PriorityManager` — overrides from `LandingPadController`
-
-| Override | What it does |
-|---|---|
-| `select_active_drone()` | Highest `priority_score()` proceeds instead of closest drone. Falls back to distance-based if no cargo config. |
-| `step_update()` | Decrements `time_to_expiry` by 1 each step, making urgency increase over time |
-
-### Phase 2 results
-- 3 drones, mixed cargo, 1 landing pad
-- Drone 0 (organ/critical) lands at step 36 — highest priority
-- Drone 2 (medication/urgent) lands at step 67
-- Drone 1 (equipment/routine) lands at step 103
-- 100% success rate, priority ordering correct
+### Changed
+- **`app2_standardized.py`** — Now supports two modes:
+  1. **Config-file mode:** `python app2_standardized.py landing_pad scenarios/phase2_landing_pad.json`
+  2. **Interactive mode:** `python app2_standardized.py landing_pad` (manual parameter entry)
+- Config data flows through function arguments (not global file reads) —
+  `app2_standardized.py` loads the JSON, `test.py` receives it via `PLAN()` args
 
 ---
 
-## Integration Prep — Hooks for Future Phases
+## Files Summary
 
-Two forward-looking changes to smooth integration for Phases 3–5.
+### New files
+| File | Phase | Purpose |
+|---|---|---|
+| `landing_pad.py` | 1 | Mutual exclusion controller — yielding, cleanup, MPC reset |
+| `priority.py` | 2 | Scoring math — `priority_score()`, `rank_drones()` |
+| `priority_manager.py` | 2 | Priority-based controller — extends `LandingPadController` |
+| `test_phase2.py` | 2 | Standalone Phase 2 test (no animation) |
+| `scenarios/phase1_landing_pad.json` | 1 | 2-drone closest-first scenario config |
+| `scenarios/phase2_landing_pad.json` | 2 | 3-drone priority-based scenario config |
+
+### Modified files
+| File | What changed |
+|---|---|
+| `app2_standardized.py` | Config-file mode, landing pad scenario branch, cargo attribute passthrough |
+| `test.py` | Controller delegation, accepts cargo/env/drone-count params, early exit |
+| `uav.py` | Added `cargo_type`, `time_to_expiry`, `patient_acuity` attributes |
+| `run.py` | Fixed hardcoded drone index threshold |
+| `avoid.py` | Wall collision multiplier, env_type support |
+| `SET.py` | Added `ENV_TYPE`, `num_moving_drones` globals |
+| `src/utils.py` | Added `landing_pad` environment type |
+
+### Deleted files
+| File | Reason |
+|---|---|
+| `cargo_configs.json` | Replaced by scenario configs in `scenarios/` |
+| `docs/PROJECT_GUIDELINE.md` | Content moved to README.md |
+
+### Unchanged files
+`run.py` (MPC solver core), `others.py`, `dynamic.py`, `plot.py`, `plot_standardized.py`
+
+---
+
+## Extension Points for Future Phases
+
+Two hooks exist in the controller hierarchy for Phases 3–5.
 Existing behavior is unchanged — the hooks are no-ops until overridden.
 
-### `negotiation_hook()` — pre-selection override point
+- **`negotiation_hook()`** — called before `select_active_drone()`. Return
+  `None` for normal behavior, or a result dict to override. (Phase 4 target)
+- **`step_update()`** — called each simulation step. Phase 2 uses it to
+  decrement `time_to_expiry`. (Extensible for Phase 3+)
 
-Called before `select_active_drone()` each step.  Return `None` to proceed
-normally, or return a result dict to override the decision entirely.
-Phase 4 overrides this for LLM-based arbitration.
-
-### `select_active_drone()` — metadata dict return format
+`select_active_drone()` returns a metadata dict for logging/comparison:
 
 ```python
 {
     "allowed":  int | None,      # drone that may proceed
     "yielding": set[int],        # drones that must hold
     "method":   str,             # "distance" | "priority" | custom
-    "scores":   dict[int, float] # per-drone score for logging/comparison
+    "scores":   dict[int, float] # per-drone scores
 }
 ```
-
----
-
-## Integration Guide for Future Phases
-
-All future phases extend the controller hierarchy — subclass and override
-hooks.  No changes to `test.py` or the MPC solver needed.
-
-| Phase | Subclass | Override | What it adds |
-|---|---|---|---|
-| Phase 3 — Holding orbits | `OrbitController(PriorityManager)` | `freeze_yielding()` | Yielding drones fly circular orbits instead of freezing |
-| Phase 4 — LLM negotiation | `NegotiationController(PriorityManager)` | `negotiation_hook()` | Pairwise drone arbitration via LLM; compare against rule-based scores |
-| Phase 5 — Lookahead scheduling | `SchedulerController(PriorityManager)` | `select_active_drone()` | Plan full landing queue using `rank_drones()` + time-horizon optimizer |

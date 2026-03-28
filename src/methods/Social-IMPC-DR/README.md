@@ -89,6 +89,15 @@ constraint — only one drone may approach the pad at a time.
 **Result:** 2 drones, 1 pad. Drone 0 lands at step 51, Drone 1 at step 102.
 100% success rate.
 
+**Metrics (Phase 1):**
+
+| Metric | Value |
+|---|---|
+| Total delivery time | 102 steps |
+| Pad idle time | 0 steps (Drone 1 starts immediately after Drone 0 lands) |
+| Collision events | 0 |
+| Success rate | 100% |
+
 ![Phase 1 — 2 drones, closest-first](../../../logs/Social-IMPC-DR/animations/landing_pad_2agents.gif)
 
 ---
@@ -120,6 +129,16 @@ Output: `priority_score()` → float in [0, 1]
 - Drone 2 (medication/urgent) lands at step 67
 - Drone 1 (equipment/routine) lands at step 103
 - 100% success, correct priority ordering.
+
+**Metrics (Phase 2):**
+
+| Metric | Value |
+|---|---|
+| Total delivery time | 103 steps |
+| Priority inversions | 0 (correct ordering: organ → medication → equipment) |
+| Weighted delivery delay | Organ delivered first despite being farther — delay minimized for highest-criticality cargo |
+| Collision events | 0 |
+| Success rate | 100% |
 
 ![Phase 2 — 3 drones, priority-based](../../../logs/Social-IMPC-DR/animations/landing_pad_3agents.gif)
 
@@ -207,16 +226,84 @@ and negotiate who yields.
   (format drone status as prompt, LLM returns yield decision)
 - Run same scenario with both modes, compare outcomes
 
-### Phase 5 — Lookahead Scheduling
+### Phase 5 — Lookahead Scheduling & Global Evaluation
 
 **Goal:** Plan the full landing queue over a time horizon instead of greedy
-per-step decisions.
+per-step decisions. This phase also owns the **global evaluation metrics**
+for the entire project.
 
 **What to implement:**
 - Subclass `PriorityManager` → `SchedulerController`
 - Override `select_active_drone()` to use `rank_drones()` + time-horizon optimizer
-- Track metrics: pad utilization, priority inversion rate, total weighted
-  delivery delay, patient welfare proxy
+- Implement data logging and reporting for the metrics below
+
+**Evaluation metrics (tracked across all phases):**
+
+| Metric | Description | Phases |
+|---|---|---|
+| Pad utilization | Fraction of time the pad is actively in use vs. idle | All |
+| Priority inversion rate | How often a lower-priority drone lands before a higher-priority one | 2+ |
+| Total weighted delivery delay | Sum of (priority_weight × delivery_delay) across all drones | 2+ |
+| Patient welfare proxy | Mathematical score based on delivery times and cargo criticality | 2+ |
+| VIP delay | Additional time a VIP drone waits due to conflicts | 3+ |
+| Decision latency | Time to resolve negotiation between drones | 4+ |
+| Global weighted delay vs. greedy | Comparison of lookahead scheduler against greedy baseline | 5 |
+
+> **Note:** Phases 1–2 report basic metrics inline (delivery time, priority
+> inversions, success rate). The full metrics dashboard is a Phase 5
+> deliverable — there is no separate "evaluation phase."
+
+---
+
+## Future Extensions
+
+### Extension A — Round-Trip Scenarios (Phase 6 candidate)
+
+**Goal:** Drones don't just arrive — they land, unload, and depart back to
+their origin, turning the pad into a **two-way bottleneck** in a continuous
+delivery loop.
+
+**Why it matters:** The current roadmap (Phases 1–5) treats the landing pad as
+a finish line. Round trips test **sustained throughput** where the pad is a
+temporary stop in a Source → Hospital → Source cycle.
+
+**Feasibility:** High. The codebase already supports mid-simulation goal changes
+via `uav.change_target()`. No MPC or physics changes are needed.
+
+**What to implement:**
+- Per-drone trip-state FSM: `INBOUND → LANDED → UNLOADING → OUTBOUND → DONE`
+- Override `cleanup_landed()` to call `change_target(return_point)` instead of
+  teleporting the drone off-screen
+- Add `round_trip: true` flag and return waypoints to the scenario config
+- Manage both arrival and departure queues at the pad
+
+### Extension B — Continuous Speed Control (Phase 3/5 integration)
+
+**Goal:** Instead of freezing yielding drones completely, modulate their flight
+speed so they arrive exactly when the pad clears — replacing discrete Go/Stop
+decisions with continuous velocity optimization.
+
+**Why it matters:** In real robotics, stopping completely is energy-inefficient.
+A drone told to fly at 50% speed two miles out can arrive precisely when the pad
+is free, eliminating idle hover time.
+
+**Relationship to existing phases:**
+- **Phase 3** proposes circular holding orbits. Speed control is the alternative:
+  slow approach instead of loitering.
+- **Phase 5** proposes lookahead scheduling. Predictive speed tuning is its
+  advanced form — the `SchedulerController` computes the optimal `speed_factor`
+  per drone so that arrivals are sequenced without stopping.
+
+**Feasibility:** Two tiers.
+
+| Tier | Description | Effort |
+|---|---|---|
+| **A — Vmax scaling** | Set `agent.Vmax = 1.0 * speed_factor` per drone. MPC naturally plans a slower trajectory. Override `freeze_yielding()` to reduce speed instead of zeroing velocity. | Low (~30 lines) |
+| **B — Predictive arrival** | `SchedulerController` estimates pad clearance time, computes required speed factor per drone so `ETA == pad_clear_time`. Re-solves every N steps. | Medium-high (~400-500 lines) |
+
+> **Note:** `Vmax` is a ceiling, not a target — the MPC may fly slower than the
+> cap due to collision avoidance or terminal constraints. Tier B would need
+> iterative tuning or a two-layer optimizer (scheduler sets Vmax, MPC executes).
 
 ---
 
