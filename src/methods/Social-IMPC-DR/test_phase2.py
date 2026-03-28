@@ -11,36 +11,42 @@ sys.path.insert(0, src_path)
 from utils import StandardizedEnvironment
 from test import PLAN
 
-env_type = 'landing_pad'
+# Load everything from the phase2 scenario config
+scenario_path = Path(__file__).resolve().parent / 'scenarios' / 'phase2_landing_pad.json'
+with open(scenario_path, 'r') as f:
+    cfg = json.load(f)
+
+env_type = cfg['env_type']
+drones = cfg['drones']
+num_moving = cfg['num_moving_drones']
+
 # Test without walls first to verify priority logic
 obstacles = []
-positions = StandardizedEnvironment.get_standard_agent_positions(env_type, 3)
 
-ini_x_m = [np.array(p['start']) for p in positions]
-target_m = [np.array(p['goal']) for p in positions]
-ini_v_m = [np.zeros(2) for _ in range(3)]
+ini_x_m = [np.array(d['start']) for d in drones]
+target_m = [np.array(d['goal']) for d in drones]
+ini_v_m = [np.zeros(2) for _ in range(num_moving)]
 
 ini_x = ini_x_m + obstacles
 ini_v = ini_v_m + [np.zeros(2) for _ in obstacles]
 target = target_m + obstacles
 
-cargo_cfg_path = Path(__file__).resolve().parent / 'cargo_configs.json'
-with open(cargo_cfg_path, 'r') as f:
-    cargo_cfg = json.load(f)
-cargo_configs = cargo_cfg['presets']
+cargo_configs = [
+    {'cargo_type': d['cargo_type'], 'time_to_expiry': d['time_to_expiry'], 'patient_acuity': d['patient_acuity']}
+    for d in drones
+]
 
-print(f"Num agents: {len(ini_x)} (3 moving + {len(obstacles)} walls)")
+print(f"Num agents: {len(ini_x)} ({num_moving} moving + {len(obstacles)} walls)")
 for i, c in enumerate(cargo_configs):
     d = np.linalg.norm(ini_x_m[i])
-    ct = c['cargo_type']
-    pa = c['patient_acuity']
-    print(f"  Drone {i}: start={ini_x_m[i]}, dist={d:.2f}, cargo={ct}/{pa}")
+    print(f"  Drone {i}: start={ini_x_m[i]}, dist={d:.2f}, cargo={c['cargo_type']}/{c['patient_acuity']}")
 
 result, agent_list, completion_step = PLAN(
     len(ini_x), ini_x, ini_v, target,
-    r_min=0.5, epsilon=0.1, h=0.1, K=10, episodes=200,
-    num_moving_drones=3, wall_collision_multiplier=1.5,
-    verbose=True, env_type=env_type, cargo_configs=cargo_configs,
+    r_min=cfg['min_radius'], epsilon=cfg['epsilon'], h=cfg['step_size'],
+    K=cfg['k_value'], episodes=cfg['max_steps'],
+    num_moving_drones=num_moving, wall_collision_multiplier=cfg['wall_collision_multiplier'],
+    verbose=cfg.get('verbose', True), env_type=env_type, cargo_configs=cargo_configs,
 )
 
 print(f"\nAll done at step {completion_step}")
