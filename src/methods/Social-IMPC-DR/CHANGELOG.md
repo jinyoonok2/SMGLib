@@ -17,7 +17,7 @@ For project overview, architecture, and usage instructions, see [README.md](READ
   - Overrides `step_update()` to decrement `time_to_expiry` each step (urgency increases over time)
   - Falls back to distance-based selection if no cargo config is present
 - **`test_phase2.py`** — Standalone 3-drone test script (no animation, quick verification)
-- **`scenarios/phase2_landing_pad.json`** — 3-drone scenario config with mixed cargo
+- **`configs/phase2_landing_pad.json`** — 3-drone scenario config with mixed cargo
   - Drone 0: organ / critical / 60s expiry
   - Drone 1: equipment / routine / 200s expiry
   - Drone 2: medication / urgent / 150s expiry
@@ -50,7 +50,7 @@ For project overview, architecture, and usage instructions, see [README.md](READ
   - `update_idle_positions()` — keeps animation position arrays aligned
   - `step_update()` — per-step hook (no-op in Phase 1; extensible)
   - `negotiation_hook()` — pre-selection hook (no-op; override point for Phase 4)
-- **`scenarios/phase1_landing_pad.json`** — 2-drone scenario config, no priority
+- **`configs/phase1_landing_pad.json`** — 2-drone scenario config, no priority
 - **`src/utils.py`** — Added `landing_pad` environment type with shared goal at
   `[0,0]`, wall obstacle layout, and pad visualization marker
 
@@ -84,16 +84,17 @@ For project overview, architecture, and usage instructions, see [README.md](READ
 ## [Config Evolution] — Scenario Config System
 
 ### Added
-- **`scenarios/` directory** — JSON config files that define complete simulation runs
-  (environment type, simulation parameters, drone positions, and cargo attributes)
+- **`configs/` directory** — JSON config files that define complete simulation runs
+  (environment type, simulation parameters, drone positions, cargo attributes,
+  and priority scoring parameters)
 
 ### Removed
-- **`cargo_configs.json`** — Replaced by per-scenario configs in `scenarios/`
+- **`cargo_configs.json`** — Replaced by per-scenario configs in `configs/`
 - **`docs/PROJECT_GUIDELINE.md`** — Content consolidated into README.md
 
 ### Changed
 - **`app2_standardized.py`** — Now supports two modes:
-  1. **Config-file mode:** `python app2_standardized.py landing_pad scenarios/phase2_landing_pad.json`
+  1. **Config-file mode:** `python app2_standardized.py landing_pad configs/phase2_landing_pad.json`
   2. **Interactive mode:** `python app2_standardized.py landing_pad` (manual parameter entry)
 - Config data flows through function arguments (not global file reads) —
   `app2_standardized.py` loads the JSON, `test.py` receives it via `PLAN()` args
@@ -109,8 +110,9 @@ For project overview, architecture, and usage instructions, see [README.md](READ
 | `priority.py` | 2 | Scoring math — `priority_score()`, `rank_drones()` |
 | `priority_manager.py` | 2 | Priority-based controller — extends `LandingPadController` |
 | `test_phase2.py` | 2 | Standalone Phase 2 test (no animation) |
-| `scenarios/phase1_landing_pad.json` | 1 | 2-drone closest-first scenario config |
-| `scenarios/phase2_landing_pad.json` | 2 | 3-drone priority-based scenario config |
+| `configs/phase1_landing_pad.json` | 1 | 2-drone closest-first scenario config |
+| `configs/phase2_landing_pad.json` | 2 | 3-drone priority-based scenario config |
+| `configs/priority_config.json` | 2 | Priority scoring weights, cargo weights, acuity scores |
 
 ### Modified files
 | File | What changed |
@@ -126,7 +128,7 @@ For project overview, architecture, and usage instructions, see [README.md](READ
 ### Deleted files
 | File | Reason |
 |---|---|
-| `cargo_configs.json` | Replaced by scenario configs in `scenarios/` |
+| `cargo_configs.json` | Replaced by scenario configs in `configs/` |
 | `docs/PROJECT_GUIDELINE.md` | Content moved to README.md |
 
 ### Unchanged files

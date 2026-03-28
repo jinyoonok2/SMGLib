@@ -18,12 +18,12 @@ conda activate smglib
 
 **Run Phase 1** (2 drones, closest-first):
 ```bash
-python app2_standardized.py landing_pad scenarios/phase1_landing_pad.json
+python app2_standardized.py landing_pad configs/phase1_landing_pad.json
 ```
 
 **Run Phase 2** (3 drones, priority-based):
 ```bash
-python app2_standardized.py landing_pad scenarios/phase2_landing_pad.json
+python app2_standardized.py landing_pad configs/phase2_landing_pad.json
 ```
 
 **Interactive mode** (manual parameter entry):
@@ -38,10 +38,11 @@ Animations are saved to `logs/Social-IMPC-DR/animations/`.
 ## Project Architecture
 
 ```
-scenarios/
+configs/
   phase1_landing_pad.json ──┐
   phase2_landing_pad.json ──┤    Scenario configs: drone positions,
-                            │    simulation params, cargo assignments.
+  priority_config.json ─────┤    simulation params, cargo assignments,
+                            │    and priority scoring parameters.
                             ▼
 app2_standardized.py        ← ENTRY POINT
   │                           Loads scenario config OR prompts user.
@@ -146,7 +147,7 @@ Output: `priority_score()` → float in [0, 1]
 
 ## Scenario Configuration
 
-Each phase is driven by a JSON config file in `scenarios/`. Example
+Each phase is driven by a JSON config file in `configs/`. Example
 (`phase2_landing_pad.json`):
 
 ```json
@@ -178,6 +179,48 @@ Each phase is driven by a JSON config file in `scenarios/`. Example
 | `min_radius` | Minimum safe distance between agents |
 | `wall_collision_multiplier` | Safety margin multiplier for wall agents |
 | `max_steps` | Simulation time limit |
+
+---
+
+## Priority Configuration
+
+Priority scoring parameters are defined in `configs/priority_config.json`:
+
+```json
+{
+    "factor_weights": {
+        "cargo":    0.35,
+        "expiry":   0.30,
+        "distance": 0.15,
+        "acuity":   0.20
+    },
+    "cargo_weights": {
+        "organ":         1.0,
+        "blood_product": 0.7,
+        "medication":    0.4,
+        "equipment":     0.1
+    },
+    "acuity_scores": {
+        "critical": 1.0,
+        "urgent":   0.6,
+        "routine":  0.2
+    },
+    "max_distance": 10.0,
+    "max_expiry": 300.0
+}
+```
+
+| Field | Purpose |
+|---|---|
+| `factor_weights` | How much each factor contributes to the final score (must sum to 1.0) |
+| `cargo_weights` | Categorical score per cargo type (higher = more urgent) |
+| `acuity_scores` | Categorical score per patient acuity level |
+| `max_distance` | Normalisation cap for the distance component |
+| `max_expiry` | Normalisation cap for the expiry component |
+
+This file is **required** — `priority.py` will print an error and exit if it is
+missing. Scenario configs define *what* is being simulated; priority config
+defines *how* the scoring system evaluates drones.
 
 ---
 
@@ -321,7 +364,7 @@ is free, eliminating idle hover time.
 | `priority.py` | New | Scoring math — `priority_score()`, `rank_drones()` |
 | `priority_manager.py` | New | Phase 2 controller — priority-based policy |
 | `test_phase2.py` | New | Standalone Phase 2 test script |
-| `scenarios/*.json` | New | Scenario configs for automated runs |
+| `configs/*.json` | New | Scenario configs and priority scoring parameters |
 | `src/utils.py` | Modified | Added `landing_pad` environment type |
 
 ---

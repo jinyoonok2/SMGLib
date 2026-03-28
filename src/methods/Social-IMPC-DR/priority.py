@@ -9,38 +9,47 @@ Computes a real-valued priority score per drone based on:
 
 The score is dynamic: it is recomputed each simulation step as distance
 and time-to-expiration change.
+
+All tuneable values (factor weights, cargo weights, acuity scores,
+normalisation caps) are loaded from ``configs/priority_config.json``.
 """
+
+import json
+import sys
+from pathlib import Path
 
 import numpy as np
 
+# ── Load configuration from configs/priority_config.json ───────────────
+_CONFIG_PATH = Path(__file__).resolve().parent / 'configs' / 'priority_config.json'
+
+if not _CONFIG_PATH.exists():
+    print(
+        f"\n[ERROR] Required configuration file not found:\n"
+        f"  {_CONFIG_PATH}\n\n"
+        f"Please create 'configs/priority_config.json' with the priority\n"
+        f"weights, cargo weights, acuity scores, and normalisation caps.\n"
+        f"See README.md for the expected format.\n"
+    )
+    sys.exit(1)
+
+with open(_CONFIG_PATH, 'r') as _f:
+    _PRIORITY_CFG = json.load(_f)
+
 # ── Cargo-type categorical weights ──────────────────────────────────────
-CARGO_WEIGHTS = {
-    'organ':         1.0,
-    'blood_product': 0.7,
-    'medication':    0.4,
-    'equipment':     0.1,
-}
+CARGO_WEIGHTS = _PRIORITY_CFG['cargo_weights']
 
 # ── Patient-acuity severity scores ──────────────────────────────────────
-ACUITY_SCORES = {
-    'critical': 1.0,
-    'urgent':   0.6,
-    'routine':  0.2,
-}
+ACUITY_SCORES = _PRIORITY_CFG['acuity_scores']
 
 # ── Default factor weights (sum to 1.0) ────────────────────────────────
-DEFAULT_WEIGHTS = {
-    'cargo':    0.35,
-    'expiry':   0.30,
-    'distance': 0.15,
-    'acuity':   0.20,
-}
+DEFAULT_WEIGHTS = _PRIORITY_CFG['factor_weights']
 
 # Maximum expected distance used to normalise the distance component.
-_MAX_DISTANCE = 10.0
+_MAX_DISTANCE = _PRIORITY_CFG['max_distance']
 
 # Maximum expected expiry time (seconds / steps) used for normalisation.
-_MAX_EXPIRY = 300.0
+_MAX_EXPIRY = _PRIORITY_CFG['max_expiry']
 
 
 def priority_score(cargo_type, time_to_expiry, distance_to_pad,
