@@ -310,7 +310,15 @@ def main():
                 for d in drones
             ]
 
-        print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}")
+        # Orbit params — only used when use_orbit is true
+        orbit_params = None
+        if scenario_config.get('use_orbit', False) and cargo_configs is not None:
+            orbit_params = {
+                'orbit_radius': scenario_config.get('orbit_radius', 0.7),
+                'orbit_speed':  scenario_config.get('orbit_speed',  0.15),
+            }
+
+        print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}, orbit={scenario_config.get('use_orbit', False)}")
         for i, d in enumerate(drones):
             print(f"  Drone {i}: start={d['start']}, goal={d['goal']}")
 
@@ -385,8 +393,9 @@ def main():
 
         ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
-        # --- Phase 2: Cargo priority configuration (landing_pad only) ---
+        # --- Phase 2/3: Cargo priority / orbit configuration (landing_pad only) ---
         cargo_configs = None
+        orbit_params = None
         if env_type == 'landing_pad':
             # Load defaults from phase2 scenario config
             phase2_cfg_path = Path(__file__).resolve().parent / 'scenarios' / 'phase2_landing_pad.json'
@@ -401,6 +410,7 @@ def main():
             print("Cargo types: organ, blood_product, medication, equipment")
             print("Patient acuity: critical, urgent, routine")
             use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
+            orbit_params = None  # interactive mode does not support orbit
             if use_priority.lower() == 'y':
                 cargo_configs = []
                 for i in range(num_moving_drones):
@@ -418,7 +428,7 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
-    result, agent_list, completion_step = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs)
+    result, agent_list, completion_step = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, orbit_params=orbit_params)
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:
