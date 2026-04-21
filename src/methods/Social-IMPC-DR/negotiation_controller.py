@@ -1,19 +1,19 @@
 """
-Phase 4 ΓÇö ETA-Weighted Negotiation Controller
+Phase 4 — ETA-Weighted Negotiation Controller
 
 Extends OrbitController with per-step negotiation via two rule-based
 arbitration rules applied inside ``negotiation_hook()``:
 
-Rule 1 ΓÇö Expiry Guard
+Rule 1 — Expiry Guard
     If any active drone's ``time_to_expiry`` is less than its ETA
     (distance_to_pad / nominal_speed), that drone will expire before it
     can land.  The most critical such drone (lowest tte/ETA ratio) wins
     unconditionally, regardless of priority scores.
 
-Rule 2 ΓÇö ETA-Weighted Switching
+Rule 2 — ETA-Weighted Switching
     If the score gap between the top two priority-ranked drones is smaller
     than ``eta_threshold``, scores are too close to discriminate on merit
-    alone ΓÇö the drone with the lower ETA (closer to the pad) wins instead.
+    alone — the drone with the lower ETA (closer to the pad) wins instead.
 
 If neither rule fires, ``negotiation_hook`` returns ``None`` and normal
 priority-score ordering (Phase 2) applies.
@@ -47,7 +47,7 @@ class NegotiationController(OrbitController):
         self._eta_threshold  = eta_threshold
 
     # ------------------------------------------------------------------
-    # Override: negotiation hook ΓÇö called before priority scoring
+    # Override: negotiation hook — called before priority scoring
     # ------------------------------------------------------------------
     def negotiation_hook(self, agent_list, active_drones, step):
         """Apply expiry guard and ETA tie-breaking before priority scoring.
@@ -58,7 +58,7 @@ class NegotiationController(OrbitController):
         if len(active_drones) <= 1:
             return None
 
-        # ΓöÇΓöÇ Gather per-drone ETA and priority info ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+        # ── Gather per-drone ETA and priority info ──────────────────────
         info = []
         for j in active_drones:
             a = agent_list[j]
@@ -81,7 +81,7 @@ class NegotiationController(OrbitController):
 
         scores_map = {d['idx']: d['score'] for d in info}
 
-        # ΓöÇΓöÇ Rule 1: Expiry Guard ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+        # ── Rule 1: Expiry Guard ────────────────────────────────────────
         # Any drone that will expire before it can reach the pad.
         expiring = [d for d in info if d['tte'] < d['eta']]
         if expiring:
@@ -104,7 +104,7 @@ class NegotiationController(OrbitController):
                 "scores":   scores_map,
             }
 
-        # ΓöÇΓöÇ Rule 2: ETA-Weighted Switching ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+        # ── Rule 2: ETA-Weighted Switching ──────────────────────────────
         # Sort by priority score descending.
         info_by_score = sorted(info, key=lambda d: d['score'], reverse=True)
         top    = info_by_score[0]
