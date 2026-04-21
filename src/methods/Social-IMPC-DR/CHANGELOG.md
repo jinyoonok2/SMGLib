@@ -5,6 +5,42 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Phase 4.1] — Handoff Hysteresis + Smooth Yield Release
+
+### Added
+- **Top-level winner hysteresis** in `priority_manager.py` — once a drone wins
+  the active slot, it keeps it until it lands (`_held_winner`, `_held_method`,
+  `_held_winner_step`). Only the Expiry Guard can override mid-handoff.
+  Eliminates per-step chattering when two drones have nearly equal scores or
+  ETAs (previously caused the Phase 4 winner to flip every step).
+- **`use_hysteresis` toggle** plumbed end-to-end through `PriorityManager`,
+  `OrbitController`, `NegotiationController`, `test.py`, and `app2_standardized.py`.
+  Default `true`. Set `"use_hysteresis": false` in any scenario JSON to restore
+  the original chattering behavior for side-by-side demos.
+- **`configs/phase4_negotiation_no_hysteresis.json`** — chattering "before"
+  demo (~23 release events, lands at step 117) paired with the default
+  `phase4_negotiation.json` (2 release events, lands at step 103).
+
+### Changed
+- **`orbit_controller.py`** — orbit state (`{center, angle}`) is no longer
+  purged when a drone briefly exits the yield set. State is only re-initialized
+  if the drone has drifted more than `1.5 × orbit_radius` from its last orbit
+  center. Prevents orbit re-anchoring jolts during rapid winner swaps.
+- **`negotiation_controller.py`** — removed the per-rule internal hysteresis
+  on `ETA Switch`; hysteresis is now uniformly handled at the top level so all
+  three rules (Expiry Guard, ETA Switch, plain priority) share the same
+  commit-and-complete semantics.
+
+### Fixed
+- **Backward jolt on yield → active handoff** in `landing_pad.py reset_mpc()`:
+  - `cost_index` was being reset to `0`, which anchors *all* horizon steps at
+    the goal and pulls the drone violently backward on the first MPC step.
+    Changed to `K` so only the terminal step is anchored (matching steady-state).
+  - Velocity is now zeroed on release so leftover orbit tangential velocity
+    doesn't get carried into the descent leg.
+
+---
+
 ## [Phase 4] — ETA-Aware Negotiation with Expiry Enforcement
 
 ### Added
@@ -13,8 +49,9 @@ For project overview, architecture, results, and usage, see [README.md](README.m
   - Expiry Guard: if `time_to_expiry < distance / nominal_speed`, strict priority wins
   - ETA Switch: if score gap < `eta_threshold`, closer drone wins
   - Returns `None` if neither rule fires (falls through to normal priority)
-- **`configs/phase4_expiry_guard_test.json`** — 2-drone scenario triggering Expiry Guard
-- **`configs/phase4_eta_switch_test.json`** — 2-drone scenario triggering ETA Switch
+- **`configs/phase4_negotiation.json`** — 3-drone demo scenario; ETA Switch inverts landing order vs Phase 3
+- **`configs/phase4_expiry_guard_test.json`** — 2-drone isolated test for Expiry Guard rule
+- **`configs/phase4_eta_switch_test.json`** — 2-drone isolated test for ETA Switch rule
 
 ### Changed
 - **`test.py`** — Added `negotiation_params` kwarg to `PLAN()`; controller selection
@@ -38,7 +75,6 @@ For project overview, architecture, results, and usage, see [README.md](README.m
   - Safe-distance repulsion: orbit center pushed outward if active drone approaches
   - `pre_traj` filled with predicted orbit positions for active drone's MBVC constraints
 - **`configs/phase3_orbit.json`** — 3-drone scenario with orbit params
-- **`configs/phase2_leapfrog.json`** — same 3-drone scenario without orbit, for comparison
 
 ### Changed
 - **`test.py`** — Added `orbit_params` kwarg to `PLAN()`; controller selection
@@ -119,8 +155,9 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 | `negotiation_controller.py` | 4 | Negotiation controller — extends `OrbitController` |
 | `configs/phase1_landing_pad.json` | 1 | 2-drone closest-first scenario |
 | `configs/phase2_landing_pad.json` | 2 | 3-drone priority-based scenario |
-| `configs/phase2_leapfrog.json` | 2/3 | 3-drone priority scenario, orbit comparison baseline |
 | `configs/phase3_orbit.json` | 3 | 3-drone orbit holding scenario |
+| `configs/phase4_negotiation.json` | 4 | 3-drone ETA Switch demo (compare with Phase 3) |
+| `configs/phase4_negotiation_no_hysteresis.json` | 4.1 | Same scenario with `use_hysteresis: false` for chattering comparison |
 | `configs/phase4_expiry_guard_test.json` | 4 | 2-drone Expiry Guard test scenario |
 | `configs/phase4_eta_switch_test.json` | 4 | 2-drone ETA Switch test scenario |
 | `configs/priority_config.json` | 2 | Priority scoring weights, cargo weights, acuity scores |
@@ -128,8 +165,12 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 ### Modified files
 | File | What changed |
 |---|---|
-| `app2_standardized.py` | Config-file mode, landing pad branch, cargo/orbit/negotiation passthrough, GIF naming |
-| `test.py` | Controller delegation, cargo/orbit/negotiation params, early exit |
+| `app2_standardized.py` | Config-file mode, landing pad branch, cargo/orbit/negotiation passthrough, GIF naming, `use_hysteresis` flag |
+| `test.py` | Controller delegation, cargo/orbit/negotiation params, `use_hysteresis` plumbing, early exit |
+| `landing_pad.py` | `reset_mpc()` now sets `cost_index = K` and zeros velocity — fixes handoff jolt |
+| `priority_manager.py` | Top-level winner hysteresis (`_held_winner`); `use_hysteresis` ctor flag |
+| `orbit_controller.py` | Persistent orbit state across brief releases (drift-based re-init); `use_hysteresis` flag |
+| `negotiation_controller.py` | Removed per-rule hysteresis (now top-level); `use_hysteresis` flag |
 | `uav.py` | Added `cargo_type`, `time_to_expiry`, `patient_acuity` attributes |
 | `run.py` | Fixed hardcoded drone index threshold |
 | `avoid.py` | Wall collision multiplier, env_type support |

@@ -93,12 +93,14 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
                 safe_distance=negotiation_params.get('safe_distance', 1.2),
                 nominal_speed=negotiation_params.get('nominal_speed', 0.1),
                 eta_threshold=negotiation_params.get('eta_threshold', 0.15),
+                use_hysteresis=negotiation_params.get('use_hysteresis', True),
             )
         elif cargo_configs and orbit_params:
             controller = OrbitController(           # Phase 3
                 cargo_configs,
                 orbit_radius=orbit_params.get('orbit_radius', 0.7),
                 orbit_speed=orbit_params.get('orbit_speed', 0.15),
+                use_hysteresis=orbit_params.get('use_hysteresis', True),
             )
         elif cargo_configs:
             controller = PriorityManager(cargo_configs)   # Phase 2
@@ -106,6 +108,9 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
             controller = LandingPadController()            # Phase 1
     else:
         controller = None
+
+    # Per-frame log: captures controller decision each step for animation labels
+    frame_log = [{'allowed': None, 'yielding': set(), 'method': None, 'scores': {}}]  # frame 0 = initial
 
     # the main loop
     start =datetime.datetime.now()
@@ -123,6 +128,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
         # Determine which drones to run MPC on this step
         yielding_drones = set()
+        step_decision = {'allowed': None, 'yielding': set(), 'method': None, 'scores': {}}
         if controller is not None:
             active_drones = [j for j in range(num_moving_drones)
                             if not target_reached[j]]
@@ -133,6 +139,14 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
                 )
                 yielding_drones = result["yielding"]
                 controller.freeze_yielding(agent_list, yielding_drones)
+                step_decision = {
+                    'allowed': result.get('allowed'),
+                    'yielding': result.get('yielding', set()),
+                    'method': result.get('method'),
+                    'scores': result.get('scores', {}),
+                }
+            elif len(active_drones) == 1:
+                step_decision = {'allowed': active_drones[0], 'yielding': set(), 'method': 'sole', 'scores': {}}
 
         # Build list of drones to process (exclude landed and yielding)
         process_indices = [j for j in range(num_moving_drones)
@@ -220,6 +234,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         collect_data(agent_list)
 
         obj[i] = data_capture(SET.pos_list, SET.position_list, SET.terminal_index_list)
+        frame_log.append(step_decision)
 
         if all_goals_reached:
             break
@@ -288,5 +303,5 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         writer.writerows(ttg_list)
     print("TTG CSV file saved.")
     
-    return obj, agent_list, completion_step
+    return obj, agent_list, completion_step, frame_log
     

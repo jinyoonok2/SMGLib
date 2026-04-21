@@ -120,7 +120,15 @@ class LandingPadController:
             agent_list[j].pre_traj = np.tile(
                 agent_list[j].p, (agent_list[j].K + 1, 1)
             )
-            agent_list[j].cost_index = 0
+            # Kill the tangential orbit velocity so the first MPC solve
+            # doesn't have to flip direction (which looks like a backward
+            # dart in the animation).
+            agent_list[j].v = np.zeros_like(agent_list[j].v)
+            agent_list[j].state = np.append(agent_list[j].p, agent_list[j].v)
+            # Restore terminal-only cost weighting (matches __init__ default).
+            # Resetting to 0 forces the solver to anchor every horizon step at
+            # the target, producing a visible backward jolt on first solve.
+            agent_list[j].cost_index = agent_list[j].K
             if verbose:
                 print(f"  Drone {j} released from holding — MPC reset")
 

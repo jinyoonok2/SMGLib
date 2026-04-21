@@ -27,6 +27,7 @@ class uav():
         self.cargo_type = cargo_type            # 'organ' | 'blood_product' | 'medication' | 'equipment'
         self.time_to_expiry = float(time_to_expiry)  # steps remaining before cargo expires
         self.patient_acuity = patient_acuity    # 'critical' | 'urgent' | 'routine'
+        self.tte_history = [float(time_to_expiry)]   # TTE recorded each animation frame
 
         # current position
         self.p=ini_x.copy()

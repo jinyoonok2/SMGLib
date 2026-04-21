@@ -327,6 +327,7 @@ Each phase is driven by a JSON config file in `configs/`. Example
 | `use_negotiation` | `true` → Phase 4 negotiation controller; requires `use_orbit: true` |
 | `nominal_speed` | Drone speed estimate for ETA = distance / nominal_speed (m/step) |
 | `eta_threshold` | Score gap below which ETA decides instead of priority rank |
+| `use_hysteresis` | `true` (default) → once a drone wins the active slot it keeps it until landing; `false` re-evaluates every step (Phase 4.1 toggle) |
 | `drones` | Per-drone start/goal positions and cargo attributes |
 | `min_radius` | Minimum safe distance between agents |
 | `wall_collision_multiplier` | Safety margin multiplier for wall agents |
@@ -434,32 +435,80 @@ else:
 | `nominal_speed` | 0.1 m/step | Used to estimate ETA = distance / nominal_speed |
 | `eta_threshold` | 0.15 | Score gap below which ETA decides instead of rank |
 
-**Run Phase 4 — Expiry Guard scenario** (equipment/routine with tte=20 overrides organ/critical):
+**Run Phase 4 — 3-drone demo** (ETA Switch inverts top two drones vs Phase 3):
+```bash
+python app2_standardized.py landing_pad configs/phase4_negotiation.json
+```
+
+**Run Phase 4 — Expiry Guard test** (isolated 2-drone rule verification):
 ```bash
 python app2_standardized.py landing_pad configs/phase4_expiry_guard_test.json
 ```
 
-**Run Phase 4 — ETA Switch scenario** (medication/urgent closer, gap=0.100 < 0.15):
+**Run Phase 4 — ETA Switch test** (isolated 2-drone rule verification):
 ```bash
 python app2_standardized.py landing_pad configs/phase4_eta_switch_test.json
 ```
 
 **Results:**
 
-*Expiry Guard test:*
-- Drone 1 (equipment/routine, tte=20, needs 24.6 steps) → guard fires, lands at step 35
-- Drone 0 (organ/critical, tte=200) → lands at step 70
-- Rule fires every 10 steps as TTE ticks down; drone 1 secures the pad before expiry
+*3-drone demo (`phase4_negotiation.json`) — compare directly with Phase 3:*
 
-*ETA Switch test:*
-- Drone 0 (medication/urgent, dist=1.41, score=0.639) vs Drone 1 (organ/critical, dist=2.12, score=0.768)
-- Gap = 0.129 < 0.15 → ETA switch fires at step 20; drone 0 (closer) lands first at step 20
-- Drone 1 lands at step 53
+| Drone | Cargo | Acuity | dist | score | Phase 3 order | Phase 4 order |
+|---|---|---|---|---|---|---|
+| Drone 0 | medication | urgent | 1.41 | 0.639 | 2nd | **1st** (ETA switch) |
+| Drone 1 | organ | critical | 2.12 | 0.768 | 1st | **2nd** |
+| Drone 2 | equipment | routine | 3.61 | 0.171 | 3rd | 3rd |
+
+Score gap D1−D0 = 0.129 < 0.15 threshold → ETA Switch fires. Drone 0 (closer) lands first
+at step 20; Drone 1 at step 53; Drone 2 at step 93.
+
+![Phase 4 — 3 drones, ETA negotiation](../../../logs/Social-IMPC-DR/animations/phase4_negotiation.gif)
+
+*Isolated rule tests (2-drone):*
+- **Expiry Guard** — equipment/routine (tte=20, needs 24.6 steps) overrides organ/critical. Drone 1 lands at step 35, Drone 0 at step 70.
+- **ETA Switch** — same rule, 2-drone isolation. Drone 0 lands at step 20, Drone 1 at step 53.
 
 | GIF | Rule fired |
 |---|---|
 | ![Phase 4 — Expiry Guard](../../../logs/Social-IMPC-DR/animations/phase4_expiry_guard.gif) | Expiry Guard |
 | ![Phase 4 — ETA Switch](../../../logs/Social-IMPC-DR/animations/phase4_eta_switch.gif) | ETA Switch |
+
+---
+
+## Phase 4.1 — Handoff Hysteresis (Completed)
+
+**Problem observed in Phase 4:** when the top two drones have nearly equal
+priority scores, the ETA Switch rule re-evaluates every step and the active
+slot can flip back and forth between them. Each flip triggers an MPC reset,
+an orbit re-anchor, and a visible jolt in the animation. Over a 100-step
+run this produced ~23 release events and noticeable chattering.
+
+**Fix:** commit-and-complete winner hysteresis at the top level. Once a drone
+wins the active slot it keeps it until it lands; subsequent steps re-score
+for logging but do not change the winner. The Expiry Guard is the only rule
+allowed to override mid-handoff (so a newly-expiring drone can still preempt).
+
+**Side fixes bundled in:**
+- `landing_pad.py reset_mpc()` now sets `cost_index = K` (terminal anchor only)
+  and zeros velocity — eliminates the backward jolt at the yield → active handoff.
+- `orbit_controller.py` persists orbit state across brief releases; only
+  re-initializes if the drone has drifted more than `1.5 × orbit_radius`.
+
+**Toggle:** add `"use_hysteresis": false` to any scenario JSON to restore the
+original chattering behavior. The flag is plumbed through `PriorityManager`,
+`OrbitController`, and `NegotiationController`. Default is `true`.
+
+| Config | Hysteresis | Release events | Lands at step |
+|---|---|---|---|
+| `phase4_negotiation.json` | on (default) | 2 | 103 |
+| `phase4_negotiation_no_hysteresis.json` | off | 23 | 117 |
+
+**Run the comparison:**
+```bash
+python app2_standardized.py landing_pad configs/phase4_negotiation.json
+python app2_standardized.py landing_pad configs/phase4_negotiation_no_hysteresis.json
+```
 
 ---
 
