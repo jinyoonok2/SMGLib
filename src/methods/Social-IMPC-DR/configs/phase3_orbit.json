@@ -15,8 +15,8 @@
     "orbit_speed": 0.15,
     "safe_distance": 1.2,
     "drones": [
-        {"start": [0.5,  1.5],  "goal": [0.0, 0.0], "cargo_type": "equipment",  "time_to_expiry": 200.0, "patient_acuity": "routine"},
-        {"start": [-0.5, 3.5],  "goal": [0.0, 0.0], "cargo_type": "organ",      "time_to_expiry": 60.0,  "patient_acuity": "critical"},
-        {"start": [-2.0, -2.0], "goal": [0.0, 0.0], "cargo_type": "medication", "time_to_expiry": 150.0, "patient_acuity": "urgent"}
+        {"start": [0.0,  1.5],  "goal": [0.0, 0.0], "cargo_type": "equipment",  "time_to_expiry": 200.0, "patient_acuity": "routine"},
+        {"start": [0.0,  3.8],  "goal": [0.0, 0.0], "cargo_type": "organ",      "time_to_expiry": 60.0,  "patient_acuity": "critical"},
+        {"start": [-0.6, 0.8],  "goal": [0.0, 0.0], "cargo_type": "medication", "time_to_expiry": 150.0, "patient_acuity": "urgent"}
     ]
 }

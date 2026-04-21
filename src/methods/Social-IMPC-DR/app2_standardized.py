@@ -32,7 +32,7 @@ def _impc_logs_dirs():
     traj_dir.mkdir(parents=True, exist_ok=True)
     return anim_dir, traj_dir
 
-def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default'):
+def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default', frame_log=None):
     """Save animation as GIF file using standardized environment configuration."""
     anim_dir, _ = _impc_logs_dirs()
     if filename is None:
@@ -71,6 +71,21 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     plt.tight_layout()
     plt.subplots_adjust(right=0.8)
 
+    # Abbreviated label maps for compact display
+    _CARGO  = {'organ': 'org', 'blood_product': 'bld', 'medication': 'med', 'equipment': 'eqp'}
+    _ACUITY = {'critical': 'crit', 'urgent': 'urg', 'routine': 'rtn'}
+
+    # Per-drone text labels (one per moving drone)
+    label_texts = []
+    for k, i in enumerate(dynamic_indices):
+        c = colors[i % len(colors)]
+        txt = ax.text(0, 0, '', fontsize=6.5, ha='center', va='bottom',
+                      color='black',
+                      bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
+                                alpha=0.80, edgecolor=c, linewidth=0.8),
+                      zorder=10, clip_on=False)
+        label_texts.append(txt)
+
     def frame_positions(frame):
         pos = []
         for a in agent_list:
@@ -97,7 +112,40 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
         else:
             dyn_scatter.set_offsets(np.empty((0, 2)))
             dyn_scatter.set_color([])
-        return [dyn_scatter, obs_scatter]
+
+        # Per-drone info labels
+        if frame_log is not None:
+            fi = min(frame, len(frame_log) - 1)
+            fl = frame_log[fi]
+            allowed     = fl.get('allowed')
+            yielding_set = fl.get('yielding', set())
+            scores      = fl.get('scores', {})
+        else:
+            allowed, yielding_set, scores = None, set(), {}
+
+        for k, i in enumerate(dynamic_indices):
+            a = agent_list[i]
+            p = pos[i]
+            tte = (a.tte_history[min(frame, len(a.tte_history) - 1)]
+                   if hasattr(a, 'tte_history') and a.tte_history else a.time_to_expiry)
+            cargo  = _CARGO.get(getattr(a, 'cargo_type', ''), getattr(a, 'cargo_type', '')[:3])
+            acuity = _ACUITY.get(getattr(a, 'patient_acuity', ''), getattr(a, 'patient_acuity', '')[:3])
+            score  = scores.get(i)
+            if allowed == i:
+                status = ' \u25b6'   # filled triangle = landing
+            elif i in yielding_set:
+                status = ' \u23f8'   # pause = orbiting/waiting
+            else:
+                status = ''
+            line1 = f'D{i}: {cargo}|{acuity}'
+            line2 = f'tte:{tte:.0f}'
+            if score is not None:
+                line2 += f' s:{score:.2f}'
+            line2 += status
+            label_texts[k].set_position((p[0], p[1] + 0.28))
+            label_texts[k].set_text(f'{line1}\n{line2}')
+
+        return [dyn_scatter, obs_scatter] + label_texts
 
     anim = FuncAnimation(fig, animate, frames=max_frames, 
                         interval=StandardizedEnvironment.ANIMATION_INTERVAL, blit=True)
@@ -105,13 +153,13 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     print(f"GIF animation saved as {filename}")
     plt.close(fig)
 
-def generate_animation_standardized(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None):
+def generate_animation_standardized(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None, frame_log=None):
     """Generate animation using standardized environment configuration."""
     if agent_summary is None:
         agent_summary = f"{len(agent_list)}"
     save_gif_standardized(agent_list, r_min, filename=filename, fps=StandardizedEnvironment.ANIMATION_FPS,
                          num_moving_agents=num_moving_agents,
-                         scenario_type=scenario_type, agent_summary=agent_summary)
+                         scenario_type=scenario_type, agent_summary=agent_summary, frame_log=frame_log)
 
 def _generate_animation_standardized_unused(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None):
     """(Unused) Old frame-by-frame capture path kept for reference."""
@@ -291,9 +339,10 @@ def main():
         orbit_params = None
         if scenario_config.get('use_orbit', False) and cargo_configs is not None:
             orbit_params = {
-                'orbit_radius':  scenario_config.get('orbit_radius',  0.7),
-                'orbit_speed':   scenario_config.get('orbit_speed',   0.15),
-                'safe_distance': scenario_config.get('safe_distance', 1.2),
+                'orbit_radius':   scenario_config.get('orbit_radius',  0.7),
+                'orbit_speed':    scenario_config.get('orbit_speed',   0.15),
+                'safe_distance':  scenario_config.get('safe_distance', 1.2),
+                'use_hysteresis': scenario_config.get('use_hysteresis', True),
             }
 
         # Negotiation params — Phase 4, supersedes orbit_params when present
@@ -305,6 +354,7 @@ def main():
                 'safe_distance':  scenario_config.get('safe_distance',  1.2),
                 'nominal_speed':  scenario_config.get('nominal_speed',  0.1),
                 'eta_threshold':  scenario_config.get('eta_threshold',  0.15),
+                'use_hysteresis': scenario_config.get('use_hysteresis', True),
             }
 
         print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}, orbit={scenario_config.get('use_orbit', False)}, negotiation={scenario_config.get('use_negotiation', False)}")
@@ -418,7 +468,7 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
-    result, agent_list, completion_step = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, orbit_params=orbit_params, negotiation_params=negotiation_params)
+    result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, orbit_params=orbit_params, negotiation_params=negotiation_params)
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:
@@ -444,7 +494,7 @@ def main():
         else:
             gif_filename = f"{env_type}_{num_moving_drones}agents_{controller_tag}.gif"
         agent_summary = f"{num_moving_drones}_{controller_tag}"
-        generate_animation_standardized(agent_list, min_radius, filename=gif_filename, num_moving_agents=num_moving_drones, scenario_type=env_type, agent_summary=agent_summary)
+        generate_animation_standardized(agent_list, min_radius, filename=gif_filename, num_moving_agents=num_moving_drones, scenario_type=env_type, agent_summary=agent_summary, frame_log=frame_log)
     else:
         print("\nSimulation failed to find a solution.")
 

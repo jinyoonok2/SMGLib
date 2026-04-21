@@ -31,8 +31,8 @@ class OrbitController(PriorityManager):
     """Phase 3: yielding drones fly circular holding orbits."""
 
     def __init__(self, cargo_configs=None, orbit_radius=0.7, orbit_speed=0.15,
-                 safe_distance=1.2):
-        super().__init__(cargo_configs)
+                 safe_distance=1.2, use_hysteresis=True):
+        super().__init__(cargo_configs, use_hysteresis=use_hysteresis)
         self._orbit_radius  = orbit_radius
         self._orbit_speed   = orbit_speed    # radians per step
         self._safe_distance = safe_distance  # min gap between orbit edge and active drone
@@ -62,11 +62,13 @@ class OrbitController(PriorityManager):
         drone, the center is pushed outward so the entire orbit stays
         at least ``safe_distance`` clear of the active drone.
         """
-        # Remove stale orbit state for drones that are no longer yielding
-        stale_keys = [j for j in list(self._orbit_state)
-                      if j not in yielding_drones]
-        for j in stale_keys:
-            del self._orbit_state[j]
+        # Note: orbit state is intentionally NOT purged when a drone
+        # briefly leaves the yield set. This keeps a continuous orbit
+        # across rapid yield-flips (e.g. when ETA-switch oscillates),
+        # avoiding the visible reset/jump that would otherwise occur on
+        # every re-entry. State is reinitialised only when the drone has
+        # actually drifted far from its stored center (e.g. it became the
+        # winner long enough to head for the goal, then re-yielded).
 
         # Resolve active drone position once per step
         active_p = None
@@ -75,8 +77,17 @@ class OrbitController(PriorityManager):
             active_p = agent_list[self._active_idx].p
 
         for j in yielding_drones:
-            # Initialise orbit the first step this drone yields
-            if j not in self._orbit_state:
+            # Initialise (or re-initialise) orbit if there's no state yet
+            # or the drone has wandered well outside the stored ring.
+            needs_init = j not in self._orbit_state
+            if not needs_init:
+                drift = np.linalg.norm(
+                    agent_list[j].p - self._orbit_state[j]['center']
+                )
+                if drift > 1.5 * self._orbit_radius:
+                    needs_init = True
+
+            if needs_init:
                 self._orbit_state[j] = {
                     'center': agent_list[j].p.copy(),
                     'angle': 0.0,

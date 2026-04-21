@@ -39,8 +39,10 @@ class NegotiationController(OrbitController):
     """Phase 4: ETA-weighted negotiation + expiry guard on top of orbit."""
 
     def __init__(self, cargo_configs=None, orbit_radius=0.7, orbit_speed=0.15,
-                 safe_distance=1.2, nominal_speed=0.1, eta_threshold=0.15):
-        super().__init__(cargo_configs, orbit_radius, orbit_speed, safe_distance)
+                 safe_distance=1.2, nominal_speed=0.1, eta_threshold=0.15,
+                 use_hysteresis=True):
+        super().__init__(cargo_configs, orbit_radius, orbit_speed,
+                         safe_distance, use_hysteresis=use_hysteresis)
         self._nominal_speed  = max(nominal_speed, 1e-6)  # metres / step
         self._eta_threshold  = eta_threshold
 
@@ -109,7 +111,7 @@ class NegotiationController(OrbitController):
         second = info_by_score[1]
 
         if abs(top['score'] - second['score']) < self._eta_threshold:
-            # Scores are too close ΓÇö let ETA decide (lower ETA = closer = wins).
+            # Scores are too close - let ETA decide (lower ETA = closer = wins).
             info_by_eta = sorted(info, key=lambda d: d['eta'])
             winner = info_by_eta[0]
             allowed_idx = winner['idx']
@@ -129,5 +131,4 @@ class NegotiationController(OrbitController):
                 "scores":   scores_map,
             }
 
-        # Neither rule fired ΓÇö let Phase 2 priority scoring proceed.
         return None
