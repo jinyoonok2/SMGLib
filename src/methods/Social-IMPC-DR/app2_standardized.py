@@ -314,8 +314,9 @@ def main():
         orbit_params = None
         if scenario_config.get('use_orbit', False) and cargo_configs is not None:
             orbit_params = {
-                'orbit_radius': scenario_config.get('orbit_radius', 0.7),
-                'orbit_speed':  scenario_config.get('orbit_speed',  0.15),
+                'orbit_radius':  scenario_config.get('orbit_radius',  0.7),
+                'orbit_speed':   scenario_config.get('orbit_speed',   0.15),
+                'safe_distance': scenario_config.get('safe_distance', 1.2),
             }
 
         print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}, orbit={scenario_config.get('use_orbit', False)}")
