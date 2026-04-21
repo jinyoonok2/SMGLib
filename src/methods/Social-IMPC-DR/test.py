@@ -10,6 +10,7 @@ import csv
 from landing_pad import LandingPadController
 from priority_manager import PriorityManager
 from orbit_controller import OrbitController
+from negotiation_controller import NegotiationController
 
 def data_capture(a, b, c):
     data = {
@@ -32,7 +33,7 @@ def initialize(cargo_configs=None):
 
     return agent_list
 
-def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, orbit_params=None):
+def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, orbit_params=None, negotiation_params=None):
 
     # os.sched_setaffinity(0,[0,1,2,3,4,5,6,7])
     
@@ -84,7 +85,16 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
     # Pick the appropriate controller for landing pad scenarios
     if env_type == 'landing_pad':
-        if cargo_configs and orbit_params:
+        if cargo_configs and negotiation_params:
+            controller = NegotiationController(    # Phase 4
+                cargo_configs,
+                orbit_radius=negotiation_params.get('orbit_radius', 0.7),
+                orbit_speed=negotiation_params.get('orbit_speed', 0.15),
+                safe_distance=negotiation_params.get('safe_distance', 1.2),
+                nominal_speed=negotiation_params.get('nominal_speed', 0.1),
+                eta_threshold=negotiation_params.get('eta_threshold', 0.15),
+            )
+        elif cargo_configs and orbit_params:
             controller = OrbitController(           # Phase 3
                 cargo_configs,
                 orbit_radius=orbit_params.get('orbit_radius', 0.7),

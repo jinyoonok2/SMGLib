@@ -1,4 +1,5 @@
 {
+    "test_name": "phase2_landing_pad",
     "env_type": "landing_pad",
     "verbose": true,
     "num_moving_drones": 3,
