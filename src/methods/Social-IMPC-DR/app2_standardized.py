@@ -57,14 +57,14 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     dyn_scatter = ax.scatter([], [], c=[], s=200, edgecolors='black', linewidths=1, label='Agent')
     obs_scatter = ax.scatter([], [], c='gray', s=200, edgecolors='black', linewidths=1, label='Obstacle')
 
-    # Goals as green stars ΓÇö only for moving agents
+    # Goals as green stars — only for moving agents
     for i in range(n_moving):
         a = agent_list[i]
         gp = getattr(a, 'goal', None)
         if gp is not None and len(gp) == 2:
             ax.plot(gp[0], gp[1], '*', color='green', markersize=12)
 
-    # Create standardized legend ΓÇö only moving agents
+    # Create standardized legend — only moving agents
     legend_handles, legend_labels = StandardizedEnvironment.create_standard_legend(n_moving)
     ax.legend(legend_handles, legend_labels,
               loc='center left', bbox_to_anchor=(1.01, 0.5), fontsize=12, borderaxespad=0., markerscale=1.2)
@@ -323,7 +323,7 @@ def main():
         target_moving = [np.array(d['goal']) for d in drones]
         ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
-        # Cargo configs ΓÇö read directly from each drone entry
+        # Cargo configs — read directly from each drone entry
         cargo_configs = None
         if scenario_config.get('use_priority', False) and env_type == 'landing_pad':
             cargo_configs = [
@@ -335,7 +335,7 @@ def main():
                 for d in drones
             ]
 
-        # Orbit params ΓÇö only used when use_orbit is true
+        # Orbit params — only used when use_orbit is true
         orbit_params = None
         if scenario_config.get('use_orbit', False) and cargo_configs is not None:
             orbit_params = {
@@ -398,7 +398,7 @@ def main():
             print("- X and Y coordinates should be between -5 and 5")
         elif env_type == 'landing_pad':
             print("\nLanding Pad Configuration:")
-            print("- Single landing pad at (0, 0) ΓÇö all drones share this goal")
+            print("- Single landing pad at (0, 0) — all drones share this goal")
             print("- Only one drone can occupy the pad at a time")
             print("- Drones should start from different approach directions")
             print("- X and Y coordinates should be between -4 and 4")
