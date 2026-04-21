@@ -30,11 +30,22 @@ from priority_manager import PriorityManager
 class OrbitController(PriorityManager):
     """Phase 3: yielding drones fly circular holding orbits."""
 
-    def __init__(self, cargo_configs=None, orbit_radius=0.7, orbit_speed=0.15):
+    def __init__(self, cargo_configs=None, orbit_radius=0.7, orbit_speed=0.15,
+                 safe_distance=1.2):
         super().__init__(cargo_configs)
-        self._orbit_radius = orbit_radius
-        self._orbit_speed  = orbit_speed   # radians per step
-        self._orbit_state  = {}            # drone_index -> {center, angle}
+        self._orbit_radius  = orbit_radius
+        self._orbit_speed   = orbit_speed    # radians per step
+        self._safe_distance = safe_distance  # min gap between orbit edge and active drone
+        self._orbit_state   = {}             # drone_index -> {center, angle}
+        self._active_idx    = None           # index of the currently allowed drone
+
+    # ------------------------------------------------------------------
+    # Override: cache active drone index so freeze_yielding can use it
+    # ------------------------------------------------------------------
+    def select_active_drone(self, agent_list, active_drones, step, verbose):
+        result = super().select_active_drone(agent_list, active_drones, step, verbose)
+        self._active_idx = result["allowed"]
+        return result
 
     # ------------------------------------------------------------------
     # Override: orbit instead of freeze
@@ -45,12 +56,23 @@ class OrbitController(PriorityManager):
         Replaces the parent's zero-velocity freeze with a continuous
         circular motion.  The orbit state is reset when a drone leaves
         the yield set (so re-entry starts a fresh orbit).
+
+        If the orbit center would place the drone within
+        ``orbit_radius + safe_distance`` of the active (higher-priority)
+        drone, the center is pushed outward so the entire orbit stays
+        at least ``safe_distance`` clear of the active drone.
         """
         # Remove stale orbit state for drones that are no longer yielding
         stale_keys = [j for j in list(self._orbit_state)
                       if j not in yielding_drones]
         for j in stale_keys:
             del self._orbit_state[j]
+
+        # Resolve active drone position once per step
+        active_p = None
+        if (self._active_idx is not None
+                and self._active_idx < len(agent_list)):
+            active_p = agent_list[self._active_idx].p
 
         for j in yielding_drones:
             # Initialise orbit the first step this drone yields
@@ -62,6 +84,19 @@ class OrbitController(PriorityManager):
 
             state = self._orbit_state[j]
             state['angle'] += self._orbit_speed
+
+            # ----------------------------------------------------------
+            # Safe-distance repulsion: push orbit center away from the
+            # active drone so the whole orbit stays clear.
+            # ----------------------------------------------------------
+            if active_p is not None:
+                vec = state['center'] - active_p
+                dist_center = np.linalg.norm(vec)
+                min_center_dist = self._orbit_radius + self._safe_distance
+                if dist_center < min_center_dist:
+                    push_dir = vec / dist_center if dist_center > 1e-6 \
+                        else np.array([1.0, 0.0])
+                    state['center'] = active_p + push_dir * min_center_dist
 
             a = state['angle']
             c = state['center']
