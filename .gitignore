@@ -149,9 +149,6 @@ path_deviation/
 !logs/*/
 !logs/*/animations/
 !logs/*/trajectories/
-logs/*/animations/*.html
-logs/*/animations/*_frames/
-logs/*/animations/*_frames/**
 logs/*/trajectories/*.csv
 !logs/*/trajectories/ttg_*.csv
 
