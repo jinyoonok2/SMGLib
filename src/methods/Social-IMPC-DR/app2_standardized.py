@@ -1,6 +1,5 @@
 import numpy as np
 import sys
-import cv2
 import os
 import json
 import matplotlib.pyplot as plt
@@ -32,25 +31,6 @@ def _impc_logs_dirs():
     anim_dir.mkdir(parents=True, exist_ok=True)
     traj_dir.mkdir(parents=True, exist_ok=True)
     return anim_dir, traj_dir
-
-def save_video(frames, filename=None, fps=5, scenario_type='impc', agent_summary='default'):
-    anim_dir, _ = _impc_logs_dirs()
-    if filename is None:
-        filename = anim_dir / f"{scenario_type}_{agent_summary}agents.avi"
-    else:
-        filename = anim_dir / filename
-    if not frames:
-        print("No frames captured. Cannot save video.")
-        return
-    
-    height, width, _ = frames[0].shape
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter(str(filename), fourcc, fps, (width, height))
-    
-    for frame in frames:
-        out.write(frame)
-    out.release()
-    print(f"Video saved as {filename}")
 
 def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default'):
     """Save animation as GIF file using standardized environment configuration."""
@@ -123,18 +103,18 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
                         interval=StandardizedEnvironment.ANIMATION_INTERVAL, blit=True)
     anim.save(str(filename), writer='pillow', fps=fps)
     print(f"GIF animation saved as {filename}")
-
-    try:
-        html_name = str(filename).replace('.gif', '.html')
-        anim.save(html_name, writer='html')
-        print(f"HTML animation saved as {html_name}")
-    except Exception:
-        pass
-
     plt.close(fig)
 
 def generate_animation_standardized(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None):
     """Generate animation using standardized environment configuration."""
+    if agent_summary is None:
+        agent_summary = f"{len(agent_list)}"
+    save_gif_standardized(agent_list, r_min, filename=filename, fps=StandardizedEnvironment.ANIMATION_FPS,
+                         num_moving_agents=num_moving_agents,
+                         scenario_type=scenario_type, agent_summary=agent_summary)
+
+def _generate_animation_standardized_unused(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None):
+    """(Unused) Old frame-by-frame capture path kept for reference."""
     frames = []
     
     # Use standardized plot creation
@@ -224,10 +204,7 @@ def generate_animation_standardized(agent_list, r_min, filename=None, num_moving
     if agent_summary is None:
         agent_summary = f"{len(agent_list)}"
 
-    save_video(frames, filename=None, fps=StandardizedEnvironment.ANIMATION_FPS, 
-               scenario_type=scenario_type, agent_summary=agent_summary)
-    # Also save as GIF
-    save_gif_standardized(agent_list, r_min, filename=None, fps=StandardizedEnvironment.ANIMATION_FPS, 
+    save_gif_standardized(agent_list, r_min, filename=None, fps=StandardizedEnvironment.ANIMATION_FPS,
                          num_moving_agents=num_moving_agents,
                          scenario_type=scenario_type, agent_summary=agent_summary)
     plt.close(fig)
