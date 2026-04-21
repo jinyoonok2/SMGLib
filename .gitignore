@@ -145,13 +145,13 @@ path_deviation/
 !LICENSE.txt
 
 # Allow logs folder structure but ignore most animation/trajectory files
-# Keep only one example file in each subfolder
 !logs/
 !logs/*/
 !logs/*/animations/
 !logs/*/trajectories/
-logs/*/animations/*.gif
-!logs/*/animations/demo_*.gif
+logs/*/animations/*.html
+logs/*/animations/*_frames/
+logs/*/animations/*_frames/**
 logs/*/trajectories/*.csv
 !logs/*/trajectories/ttg_*.csv
 
