@@ -26,6 +26,21 @@ python app2_standardized.py landing_pad configs/phase1_landing_pad.json
 python app2_standardized.py landing_pad configs/phase2_landing_pad.json
 ```
 
+**Run Phase 3** (3 drones, orbit holding):
+```bash
+python app2_standardized.py landing_pad configs/phase3_orbit.json
+```
+
+**Run Phase 4 — Expiry Guard test** (rule 1: expiry override):
+```bash
+python app2_standardized.py landing_pad configs/phase4_expiry_guard_test.json
+```
+
+**Run Phase 4 — ETA Switch test** (rule 2: proximity tie-break):
+```bash
+python app2_standardized.py landing_pad configs/phase4_eta_switch_test.json
+```
+
 **Interactive mode** (manual parameter entry):
 ```bash
 python app2_standardized.py landing_pad
@@ -99,7 +114,7 @@ constraint — only one drone may approach the pad at a time.
 | Collision events | 0 |
 | Success rate | 100% |
 
-![Phase 1 — 2 drones, closest-first](../../../logs/Social-IMPC-DR/animations/landing_pad_2agents.gif)
+![Phase 1 — 2 drones, closest-first](../../../logs/Social-IMPC-DR/animations/phase1_landing_pad.gif)
 
 ---
 
@@ -141,7 +156,7 @@ Output: `priority_score()` → float in [0, 1]
 | Collision events | 0 |
 | Success rate | 100% |
 
-![Phase 2 — 3 drones, priority-based](../../../logs/Social-IMPC-DR/animations/landing_pad_3agents.gif)
+![Phase 2 — 3 drones, priority-based](../../../logs/Social-IMPC-DR/animations/phase2_landing_pad.gif)
 
 ---
 
@@ -202,7 +217,7 @@ python app2_standardized.py landing_pad configs/phase3_orbit.json
 | Success rate | 100% |
 | Behavior during yield | Circular orbit (airborne) vs. frozen (Phase 1/2) |
 
-![Phase 3 — 3 drones, orbit holding](../../../logs/Social-IMPC-DR/animations/landing_pad_3agents.gif)
+![Phase 3 — 3 drones, orbit holding](../../../logs/Social-IMPC-DR/animations/phase3_orbit.gif)
 
 ---
 
@@ -301,6 +316,7 @@ Each phase is driven by a JSON config file in `configs/`. Example
 
 | Field | Purpose |
 |---|---|
+| `test_name` | Output GIF filename stem (e.g. `"phase3_orbit"` → `phase3_orbit.gif`) |
 | `env_type` | Environment layout (`landing_pad`, `doorway`, `hallway`, `intersection`) |
 | `num_moving_drones` | Number of active drones |
 | `use_priority` | `false` → Phase 1 (closest-first), `true` → Phase 2+ (priority-based) |
@@ -308,6 +324,9 @@ Each phase is driven by a JSON config file in `configs/`. Example
 | `orbit_radius` | Radius of the holding orbit circle (metres) |
 | `orbit_speed` | Angular speed of the orbit (radians/step) |
 | `safe_distance` | Minimum gap between orbit edge and active drone (metres) |
+| `use_negotiation` | `true` → Phase 4 negotiation controller; requires `use_orbit: true` |
+| `nominal_speed` | Drone speed estimate for ETA = distance / nominal_speed (m/step) |
+| `eta_threshold` | Score gap below which ETA decides instead of priority rank |
 | `drones` | Per-drone start/goal positions and cargo attributes |
 | `min_radius` | Minimum safe distance between agents |
 | `wall_collision_multiplier` | Safety margin multiplier for wall agents |
@@ -366,127 +385,160 @@ LandingPadController              ← Phase 1: closest drone first
             │
             └── OrbitController   ← Phase 3: yielding drones hold circular orbits
                     │
-                    └── (Phase 4+) ← negotiation_hook() override point
+                    └── NegotiationController  ← Phase 4: ETA + expiry guard override
+                                │
+                                └── (Phase 5+)  ← LLM-based negotiation
 ```
 
 Each subclass only overrides the methods it changes. `test.py` calls the same
-interface regardless of which controller is active. Two hooks exist for future
-phases:
+interface regardless of which controller is active. Two hooks exist for extension:
 
-- `negotiation_hook()` — called before `select_active_drone()`. Return `None`
-  for normal behavior, or a result dict to override. (Phase 4 target)
+- `negotiation_hook()` — called before `select_active_drone()`. Returns `None`
+  for normal behavior, or a result dict to override. Phase 4 implements expiry
+  guard + ETA switch here. Phase 5 replaces this with an LLM call.
 - `step_update()` — called each simulation step. Phase 2 uses it to decrement
-  `time_to_expiry`. (Extensible for Phase 3+)
+  `time_to_expiry`. Extensible for any per-step state tracking.
 
 ---
 
-## Next Phases (This is just for an example, you can build it in a direction you want)
+## Phase 4 — ETA-Aware Negotiation with Expiry Enforcement (Completed)
 
-### Phase 3 — Holding Orbit Patterns ✅ Completed
+**Goal:** Make the yielding decision smarter without changing Phases 1–3.
+Instead of always enforcing strict priority rank, allow a closer lower-priority
+drone to land first when the score difference is small — but override that
+leniency the moment a drone is at risk of expiring before it reaches the pad.
 
-See [Phase 3 section](#phase-3--holding-orbit-patterns-completed) above.
-Key files: `orbit_controller.py`, `configs/phase3_orbit.json`.
-
-### Phase 4 — ETA-Aware Negotiation with Expiry Enforcement
-
-**Goal:** Make the yielding decision smarter. Instead of always enforcing strict
-priority rank, allow a closer lower-priority drone to land first when doing so
-costs less time overall — but override that leniency the moment a higher-priority
-drone is at risk of expiring before it reaches the pad.
+**Controller:** `NegotiationController(OrbitController)` in `negotiation_controller.py`
 
 **Two rules inside `negotiation_hook()`:**
 
-1. **ETA-weighted switching** — if the priority score gap between two drones is
-   below a threshold, the drone with the shorter estimated time of arrival goes
-   first. Estimated arrival = `distance_to_pad / nominal_speed`. This avoids
-   needlessly delaying a nearby drone just to enforce a small rank difference.
+1. **Expiry Guard** — if any waiting drone's `time_to_expiry` is less than its
+   estimated arrival time (`distance / nominal_speed`), strict priority is enforced
+   immediately. That drone will expire before it can land — it wins regardless of score.
 
-2. **Expiry guard** — if any waiting drone's `time_to_expiry` is less than its
-   estimated arrival time (i.e. it will expire before it can land), strict
-   priority is enforced immediately regardless of ETA. This is the hard safety
-   override.
+2. **ETA Switch** — if the priority score gap between the top two drones is below
+   `eta_threshold`, the drone with the shorter ETA goes first. Avoids needlessly
+   delaying a nearby drone for a trivially small rank difference.
 
 ```
 if any waiting drone expires before ETA:
-    → enforce strict priority (critical cargo always wins)
-elif |score_A - score_B| < threshold:
-    → let ETA decide (closer drone goes first)
+    → Expiry Guard fires: enforce strict priority (highest score wins)
+elif |score_top - score_second| < eta_threshold:
+    → ETA Switch fires: closer drone goes first
 else:
-    → enforce priority rank as normal
+    → normal priority rank (same as Phase 3)
 ```
 
-**What to implement:**
-- Subclass `OrbitController` → `NegotiationController`
-- Override `negotiation_hook()` with the two-rule logic above
-- Add `eta_threshold` (score gap tolerance) and `nominal_speed` to scenario config
-- Two modes: **rule-based** (deterministic, as above) vs **LLM-enhanced**
-  (format drone status + ETA + expiry as a prompt, LLM returns yield decision)
-- Run same scenario with both modes, compare outcomes
+| Parameter | Default | Description |
+|---|---|---|
+| `nominal_speed` | 0.1 m/step | Used to estimate ETA = distance / nominal_speed |
+| `eta_threshold` | 0.15 | Score gap below which ETA decides instead of rank |
 
-**Why this does not require changes to Phases 1–3:**
-`negotiation_hook()` was left as a no-op from Phase 1 for exactly this purpose.
-Phase 4 only adds `negotiation_controller.py` and a new config file. Everything
-else — orbit behavior, priority scoring, MPC physics — is untouched.
+**Run Phase 4 — Expiry Guard scenario** (equipment/routine with tte=20 overrides organ/critical):
+```bash
+python app2_standardized.py landing_pad configs/phase4_expiry_guard_test.json
+```
 
-**Infrastructure already in place:**
-- `time_to_expiry` — live, decremented every step in `PriorityManager.step_update()` ✅
-- Distance to pad — computed each step in `select_active_drone()` ✅
-- ETA estimate — `distance / nominal_speed`, one line ✅
-- Score gap — already returned in `result["scores"]` ✅
+**Run Phase 4 — ETA Switch scenario** (medication/urgent closer, gap=0.100 < 0.15):
+```bash
+python app2_standardized.py landing_pad configs/phase4_eta_switch_test.json
+```
 
-### Phase 5 — Perimeter Waypoints + Lookahead Scheduling & Global Evaluation
+**Results:**
 
-**Goal:** Replace per-step greedy decisions with a time-horizon plan. The
-scheduler predicts when each drone will reach the pad, assigns each waiting
-drone a personal perimeter waypoint (a reserved hover spot on a ring ~2m from
-the pad), and sequences arrivals so that drones land in priority order without
-needing to orbit or freeze.
+*Expiry Guard test:*
+- Drone 1 (equipment/routine, tte=20, needs 24.6 steps) → guard fires, lands at step 35
+- Drone 0 (organ/critical, tte=200) → lands at step 70
+- Rule fires every 10 steps as TTE ticks down; drone 1 secures the pad before expiry
 
-**How it differs from Phase 4:**
-- Phase 4 makes smarter *decisions* each step (who yields, based on ETA + expiry)
-- Phase 5 makes smarter *plans* across multiple steps (assigns destinations so
-  the right arrival order emerges naturally from the drones' own MPC)
+*ETA Switch test:*
+- Drone 0 (medication/urgent, dist=1.41, score=0.639) vs Drone 1 (organ/critical, dist=2.12, score=0.768)
+- Gap = 0.129 < 0.15 → ETA switch fires at step 20; drone 0 (closer) lands first at step 20
+- Drone 1 lands at step 53
 
-**Waiting behavior change:** Yielding drones no longer orbit. Instead the
-scheduler assigns each one a unique perimeter waypoint and each drone flies
-there using its own MPC. The original MBVC collision avoidance handles all
-in-flight separation automatically. No manual position math needed.
+| GIF | Rule fired |
+|---|---|
+| ![Phase 4 — Expiry Guard](../../../logs/Social-IMPC-DR/animations/phase4_expiry_guard.gif) | Expiry Guard |
+| ![Phase 4 — ETA Switch](../../../logs/Social-IMPC-DR/animations/phase4_eta_switch.gif) | ETA Switch |
 
-**Per-step priority check as safety net:** ETA predictions from a simplified
-model will accumulate error as drones interact and slow each other down via
-MBVC. The Phase 4 negotiation hook stays active as a fallback — if a
-lower-priority drone drifts too close to the pad before the scheduler
-anticipated, the per-step priority check catches and corrects it.
+---
 
-**What to implement:**
-- Subclass `NegotiationController` → `SchedulerController`
-- Override `select_active_drone()` to assign perimeter waypoints via
-  `agent.change_target()` for yielding drones (already called every step in
-  `run_one_agent()` — zero infrastructure cost)
-- Compute ETA per drone using time-horizon simulation or simplified estimate
-- Sequence waypoint assignments so that estimated arrivals respect priority order
-- Implement data logging and reporting for the metrics below
+## Phase 5 — LLM-Enhanced Negotiation (Planned)
 
-**What to implement:**
-- Subclass `NegotiationController` → `SchedulerController`
-- Override `select_active_drone()` with lookahead queue logic
-- Implement data logging and reporting for the metrics below
+**Goal:** Replace the deterministic negotiation rules from Phase 4 with an
+LLM that reasons over drone state in natural language. Use this as an
+**ablation study** to measure what each decision component contributes.
 
-**Evaluation metrics (tracked across all phases):**
+**Motivation:** Phase 4's two rules encode specific medical knowledge:
+*"expiring cargo overrides rank"* and *"nearby drones should not wait for
+trivial rank differences."* An LLM may encode richer implicit medical knowledge
+and handle edge cases the rules miss — or it may not. The ablation tells us.
+
+### Ablation Study Design
+
+Each condition isolates one decision component by keeping everything else fixed:
+
+| Condition | Priority Scoring | Negotiation Hook | Research question |
+|---|---|---|---|
+| Phase 3 | Formula (weighted) | None | Does formula-based priority work? |
+| Phase 4 | Formula (weighted) | Rules (ETA + expiry) | Do rules improve over scoring alone? |
+| **Phase 5-A** | Formula (weighted) | **LLM** | Can LLM replace hand-coded rules? |
+| **Phase 5-B** | **LLM** | Rules (ETA + expiry) | Can LLM replace the scoring formula? |
+| **Phase 5-C** | **LLM** | **LLM** | Can LLM do everything? |
+
+If Phase 5-A ≈ Phase 4, the rules are already LLM-quality. If Phase 5-A > Phase 4,
+the LLM handles edge cases the rules miss. If Phase 5-B > Phase 2/3, LLM implicit
+medical domain knowledge outperforms hand-tuned weights.
+
+### LLM as `negotiation_hook()` (Phase 5-A)
+
+The LLM receives a structured prompt each time `negotiation_hook()` is called:
+
+```
+You are coordinating medical drone deliveries to a single landing pad.
+Only one drone can land at a time. Choose which drone should land next.
+
+Drone states (current step: {step}):
+  Drone 0: cargo=medication, acuity=urgent,   distance=1.41m, ETA=14 steps, time_to_expiry=50,  score=0.639
+  Drone 1: cargo=organ,      acuity=critical,  distance=2.12m, ETA=21 steps, time_to_expiry=200, score=0.768
+
+Respond with exactly: DRONE <index> because <brief reason>
+```
+
+The LLM returns a drone index + reasoning. Falls back to Phase 4 rules on
+timeout or invalid output.
+
+### LLM as `priority_score()` (Phase 5-B)
+
+Instead of the formula, the LLM directly ranks all drones given:
+- `cargo_type`, `patient_acuity`, `time_to_expiry`, `distance_to_pad`
+
+The LLM returns a ranked list. The controller picks the top-ranked drone as
+active. This ablates the hand-tuned weights (0.35/0.30/0.15/0.20) and tests
+whether LLM implicit reasoning reproduces or improves on the formula.
+
+### What to implement
+
+- **`llm_controller.py`** — `LLMController(NegotiationController)`
+  - Override `negotiation_hook()` for Phase 5-A (LLM as negotiator)
+  - Override `select_active_drone()` + `_llm_rank_drones()` for Phase 5-B (LLM as scorer)
+  - LLM call with structured prompt; JSON or plain-text response parsing
+  - Fallback to Phase 4 rules on timeout / parse error
+  - Decision caching: re-use LLM answer for N steps to avoid per-step API calls
+- **`configs/phase5_llm_hook.json`** — Phase 5-A config (`use_llm_hook: true`)
+- **`configs/phase5_llm_score.json`** — Phase 5-B config (`use_llm_score: true`)
+- **`configs/phase5_llm_full.json`** — Phase 5-C config (both flags)
+
+### Evaluation Metrics
 
 | Metric | Description | Phases |
 |---|---|---|
-| Pad utilization | Fraction of time the pad is actively in use vs. idle | All |
 | Priority inversion rate | How often a lower-priority drone lands before a higher-priority one | 2+ |
 | Total weighted delivery delay | Sum of (priority_weight × delivery_delay) across all drones | 2+ |
-| Patient welfare proxy | Mathematical score based on delivery times and cargo criticality | 2+ |
-| VIP delay | Additional time a VIP drone waits due to conflicts | 3+ |
-| Decision latency | Time to resolve negotiation between drones | 4+ |
-| Global weighted delay vs. greedy | Comparison of lookahead scheduler against greedy baseline | 5 |
-
-> **Note:** Phases 1–2 report basic metrics inline (delivery time, priority
-> inversions, success rate). The full metrics dashboard is a Phase 5
-> deliverable — there is no separate "evaluation phase."
+| Expiry violations | Drones whose cargo expires before landing | 4+ |
+| Decision consistency | How often LLM changes its choice across consecutive steps | 5 |
+| LLM call frequency | API calls per simulation run (cost proxy) | 5 |
+| Rule agreement rate | How often LLM agrees with Phase 4 rule-based decision | 5 |
 
 ---
 
@@ -556,6 +608,8 @@ is free, eliminating idle hover time.
 | `priority.py` | New | Scoring math — `priority_score()`, `rank_drones()` |
 | `priority_manager.py` | New | Phase 2 controller — priority-based policy |
 | `test_phase2.py` | New | Standalone Phase 2 test script |
+| `orbit_controller.py` | New | Phase 3 controller — circular orbit holding |
+| `negotiation_controller.py` | New | Phase 4 controller — ETA + expiry guard negotiation |
 | `configs/*.json` | New | Scenario configs and priority scoring parameters |
 | `src/utils.py` | Modified | Added `landing_pad` environment type |
 
