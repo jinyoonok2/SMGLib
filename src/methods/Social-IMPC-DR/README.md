@@ -593,25 +593,64 @@ whether LLM implicit reasoning reproduces or improves on the formula.
 
 ## Future Extensions
 
-### Extension A — Round-Trip Scenarios (Phase 6 candidate)
+### Extension A — Round-Trip Scenarios (Phase 6 — implemented)
+
+**Status:** Implemented in `round_trip_controller.py` and exercised by
+`configs/phase6_round_trip.json`.
 
 **Goal:** Drones don't just arrive — they land, unload, and depart back to
 their origin, turning the pad into a **two-way bottleneck** in a continuous
 delivery loop.
 
-**Why it matters:** The current roadmap (Phases 1–5) treats the landing pad as
-a finish line. Round trips test **sustained throughput** where the pad is a
-temporary stop in a Source → Hospital → Source cycle.
+**Why it matters:** Phases 1–5 treat the landing pad as a finish line.
+Round trips test **sustained throughput** where the pad is a temporary stop
+in a Source → Hospital → Source cycle.
 
-**Feasibility:** High. The codebase already supports mid-simulation goal changes
-via `uav.change_target()`. No MPC or physics changes are needed.
+**Per-drone state machine**
 
-**What to implement:**
-- Per-drone trip-state FSM: `INBOUND → LANDED → UNLOADING → OUTBOUND → DONE`
-- Override `cleanup_landed()` to call `change_target(return_point)` instead of
-  teleporting the drone off-screen
-- Add `round_trip: true` flag and return waypoints to the scenario config
-- Manage both arrival and departure queues at the pad
+```
+INBOUND -> UNLOADING -> OUTBOUND -> (next trip) INBOUND
+                                    (last trip) DONE
+```
+
+| State | Behaviour |
+|---|---|
+| `INBOUND` | Competes for the pad slot; runs Phase 4 negotiation. |
+| `UNLOADING` | Parked at the pad with `v=0` for `unload_steps` ticks; pad-busy guard forces all other inbound drones to orbit. |
+| `OUTBOUND` | MPC drives the drone back to its return point; **excluded** from priority scoring so it never yields to the pad. |
+| `DONE` | All `n_trips` round trips finished; teleported to (100, 100). |
+
+**Scenario config additions** (Phase 6 fields, in addition to Phase 4 ones):
+
+| Field | Description | Default |
+|---|---|---|
+| `round_trip` | Enables Phase 6. | `false` |
+| `n_trips` | Round trips per drone before retirement. | `2` |
+| `unload_steps` | Steps spent parked at the pad after each landing. | `5` |
+
+Return points default to each drone's `start` position.
+
+**Implementation notes**
+
+- `RoundTripController` extends `NegotiationController`, so all Phase 2/3/4
+  features (priority scores, holding orbits, ETA Switch, Expiry Guard,
+  hysteresis) still apply during the INBOUND leg.
+- Goal switching writes both `agent.change_target(...)` **and**
+  `SET.target[j] = ...`, because `run.run_one_agent()` re-asserts
+  `SET.target[agent.index]` on every MPC step.
+- The controller exposes `bind(target)` so it can update the per-drone
+  target list in `test.py` whenever a drone changes legs.
+- A new `controller.all_finished(target_reached, num_moving)` hook keeps
+  the simulation running through the gaps where `target_reached[j]` is
+  briefly true during unloading.
+
+**Verified results**
+
+| Scenario | Drones | Trips each | Total landings | Steps to finish | Success |
+|---|---|---|---|---|---|
+| Solo (`n_trips=2`) | 1 | 2 | 2 | 149 | 100% |
+| Two opposite corners | 2 | 1 | 2 | 134 | 100% |
+| `phase6_round_trip.json` | 3 | 2 | 6 | 250 | 100% |
 
 ### Extension B — Continuous Speed Control (Phase 3/5 integration)
 

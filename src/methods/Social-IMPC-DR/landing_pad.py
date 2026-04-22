@@ -156,3 +156,12 @@ class LandingPadController:
     def step_update(self, agent_list, target_reached, num_moving_drones):
         """Called at the end of each simulation step. Override for extra logic."""
         pass
+
+    # ------------------------------------------------------------------
+    # Termination check (overridden in Phase 6 for round-trip lifecycle)
+    # ------------------------------------------------------------------
+    def all_finished(self, target_reached, num_moving_drones):
+        """Return True when the simulation can terminate. By default, all
+        drones have reached their goals. Round-trip controllers override
+        this so the loop doesn't exit while drones are between trips."""
+        return all(target_reached[:num_moving_drones])

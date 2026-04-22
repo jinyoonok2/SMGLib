@@ -5,6 +5,52 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Phase 6] — Round-Trip Scenarios
+
+### Added
+- **`round_trip_controller.py`** (`RoundTripController(NegotiationController)`): per-drone trip-state FSM
+  (`INBOUND → UNLOADING → OUTBOUND → DONE`). Drones now land, sit on the pad
+  for `unload_steps` ticks, then fly back to their start position; this can
+  repeat for `n_trips` round trips before the drone is retired.
+- **Pad-busy guard**: while any drone is `UNLOADING`, all other inbound
+  drones orbit instead of converging on the occupied pad (avoids MPC
+  infeasibility from trying to land on top of another drone).
+- **Inbound-only negotiation**: only `INBOUND` drones compete for the pad
+  slot; `OUTBOUND` drones are processed by MPC (so they actually fly home)
+  but never yield to the pad and never participate in priority scoring.
+- **`bind(target)` hook on the controller**: gives the controller a
+  reference to test.py's per-drone target list so it can swap goals between
+  `PAD_CENTER` and the return point.
+- **`all_finished()` controller hook** (added to `LandingPadController`,
+  overridden in `RoundTripController`): the simulation now ends when every
+  drone reaches `DONE`, not when `target_reached[j]` is briefly true during
+  unloading.
+- **`configs/phase6_round_trip.json`** scenario: 3 drones, 2 trips each
+  (6 landings total), `unload_steps=5`.
+
+### Changed
+- `test.py`: `select_active_drone` is now invoked for every active count
+  (≥ 1, was > 1) so the round-trip pad-busy guard can fire even when only
+  one drone is currently INBOUND. The completion check now defers to
+  `controller.all_finished(...)` instead of `all(target_reached[...])`.
+
+### Fixed
+- `_switch_target` now also writes the new goal into `SET.target[j]`.
+  Without this, `run.run_one_agent()` re-asserts the original goal via
+  `agent.change_target(SET.target[agent.index])` on every MPC step,
+  silently undoing the round-trip goal swap and freezing the drone in
+  place. Also resets `term_overlap`, `term_overlap_again`, `term_index`,
+  `eta`, and `term_last_pos` so the MPC doesn't think it has already
+  converged on the previous goal.
+
+### Verified
+- Solo (1 drone, 2 trips): 149 steps, 100% success.
+- Simple (2 drones, 1 trip each, opposite corners): 134 steps, 100%.
+- Full (3 drones, 2 trips each = 6 landings): 250 steps, 100%.
+- Phase 4 regression (no round-trip): unchanged at 103 steps, 100%.
+
+---
+
 ## [Phase 4.1] — Handoff Hysteresis + Smooth Yield Release
 
 ### Added

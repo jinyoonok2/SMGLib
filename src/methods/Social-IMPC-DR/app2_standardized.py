@@ -345,7 +345,7 @@ def main():
                 'use_hysteresis': scenario_config.get('use_hysteresis', True),
             }
 
-        # Negotiation params — Phase 4, supersedes orbit_params when present
+        # Negotiation params - Phase 4, supersedes orbit_params when present
         negotiation_params = None
         if scenario_config.get('use_negotiation', False) and cargo_configs is not None:
             negotiation_params = {
@@ -354,6 +354,20 @@ def main():
                 'safe_distance':  scenario_config.get('safe_distance',  1.2),
                 'nominal_speed':  scenario_config.get('nominal_speed',  0.1),
                 'eta_threshold':  scenario_config.get('eta_threshold',  0.15),
+                'use_hysteresis': scenario_config.get('use_hysteresis', True),
+            }
+
+        # Round-trip params - Phase 6, supersedes negotiation_params when present
+        round_trip_params = None
+        if scenario_config.get('round_trip', False) and cargo_configs is not None:
+            round_trip_params = {
+                'n_trips':        scenario_config.get('n_trips',       2),
+                'unload_steps':   scenario_config.get('unload_steps',  5),
+                'orbit_radius':   scenario_config.get('orbit_radius',  0.7),
+                'orbit_speed':    scenario_config.get('orbit_speed',   0.15),
+                'safe_distance':  scenario_config.get('safe_distance', 1.2),
+                'nominal_speed':  scenario_config.get('nominal_speed', 0.1),
+                'eta_threshold':  scenario_config.get('eta_threshold', 0.15),
                 'use_hysteresis': scenario_config.get('use_hysteresis', True),
             }
 
@@ -451,6 +465,7 @@ def main():
             use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
             orbit_params = None  # interactive mode does not support orbit
             negotiation_params = None
+            round_trip_params = None  # interactive mode does not support round trip
             if use_priority.lower() == 'y':
                 cargo_configs = []
                 for i in range(num_moving_drones):
@@ -468,7 +483,7 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
-    result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, orbit_params=orbit_params, negotiation_params=negotiation_params)
+    result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, orbit_params=orbit_params, negotiation_params=negotiation_params, round_trip_params=round_trip_params)
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:
@@ -477,7 +492,9 @@ def main():
     if result:
         print("\nSimulation completed successfully!")
         # Tag the filename with the active controller so phases don't overwrite each other
-        if negotiation_params is not None:
+        if round_trip_params is not None:
+            controller_tag = 'round_trip'
+        elif negotiation_params is not None:
             controller_tag = 'negotiation'
         elif orbit_params is not None:
             controller_tag = 'orbit'

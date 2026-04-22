@@ -11,6 +11,7 @@ from landing_pad import LandingPadController
 from priority_manager import PriorityManager
 from orbit_controller import OrbitController
 from negotiation_controller import NegotiationController
+from round_trip_controller import RoundTripController
 
 def data_capture(a, b, c):
     data = {
@@ -33,7 +34,7 @@ def initialize(cargo_configs=None):
 
     return agent_list
 
-def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, orbit_params=None, negotiation_params=None):
+def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, orbit_params=None, negotiation_params=None, round_trip_params=None):
 
     # os.sched_setaffinity(0,[0,1,2,3,4,5,6,7])
     
@@ -85,7 +86,24 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
     # Pick the appropriate controller for landing pad scenarios
     if env_type == 'landing_pad':
-        if cargo_configs and negotiation_params:
+        if cargo_configs and round_trip_params:
+            controller = RoundTripController(      # Phase 6
+                cargo_configs,
+                return_points=round_trip_params.get(
+                    'return_points',
+                    [ini_x[i] for i in range(num_moving_drones)],
+                ),
+                n_trips=round_trip_params.get('n_trips', 2),
+                unload_steps=round_trip_params.get('unload_steps', 5),
+                orbit_radius=round_trip_params.get('orbit_radius', 0.7),
+                orbit_speed=round_trip_params.get('orbit_speed', 0.15),
+                safe_distance=round_trip_params.get('safe_distance', 1.2),
+                nominal_speed=round_trip_params.get('nominal_speed', 0.1),
+                eta_threshold=round_trip_params.get('eta_threshold', 0.15),
+                use_hysteresis=round_trip_params.get('use_hysteresis', True),
+            )
+            controller.bind(target)
+        elif cargo_configs and negotiation_params:
             controller = NegotiationController(    # Phase 4
                 cargo_configs,
                 orbit_radius=negotiation_params.get('orbit_radius', 0.7),
@@ -133,7 +151,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
             active_drones = [j for j in range(num_moving_drones)
                             if not target_reached[j]]
 
-            if len(active_drones) > 1:
+            if len(active_drones) >= 1:
                 result = controller.select_active_drone(
                     agent_list, active_drones, i, verbose
                 )
@@ -145,8 +163,6 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
                     'method': result.get('method'),
                     'scores': result.get('scores', {}),
                 }
-            elif len(active_drones) == 1:
-                step_decision = {'allowed': active_drones[0], 'yielding': set(), 'method': 'sole', 'scores': {}}
 
         # Build list of drones to process (exclude landed and yielding)
         process_indices = [j for j in range(num_moving_drones)
@@ -225,7 +241,11 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
                 path_data[j].append([px, py, px, py]) # nominal is same as actual
 
         # Check if all moving robots have reached their goals (for make-span calculation)
-        if not all_goals_reached and all(target_reached[:num_moving_drones]):
+        if controller is not None:
+            done = controller.all_finished(target_reached, num_moving_drones)
+        else:
+            done = all(target_reached[:num_moving_drones])
+        if not all_goals_reached and done:
             all_goals_reached = True
             completion_step = i
             if verbose:
