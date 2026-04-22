@@ -54,6 +54,29 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     # Use standardized colors
     colors = StandardizedEnvironment.AGENT_COLORS
 
+    # Phase 6: per-drone home pads (drawn only when uav.home_pad differs
+    # from the main pad, i.e. round-trip scenarios with explicit return
+    # points). Static patches added once before animation starts.
+    if scenario_type == 'landing_pad':
+        _main_pad = StandardizedEnvironment.LANDING_PAD_CENTER
+        _home_radius = StandardizedEnvironment.LANDING_PAD_RADIUS * 0.6
+        for i in range(n_moving):
+            home = getattr(agent_list[i], 'home_pad', None)
+            if home is None:
+                continue
+            if np.linalg.norm(np.asarray(home) - np.asarray(_main_pad)) < 1e-3:
+                continue
+            c = colors[i % len(colors)]
+            ax.add_patch(plt.Circle(home, radius=_home_radius,
+                                    facecolor=c, edgecolor='black',
+                                    linewidth=1, alpha=0.25, zorder=1))
+            ax.add_patch(plt.Circle(home, radius=_home_radius,
+                                    facecolor='none', edgecolor=c,
+                                    linewidth=2, linestyle='--', zorder=2))
+            ax.text(home[0], home[1] - _home_radius - 0.15,
+                    f'H{i}', fontsize=8, ha='center', va='top',
+                    color=c, fontweight='bold', zorder=2)
+
     dyn_scatter = ax.scatter([], [], c=[], s=200, edgecolors='black', linewidths=1, label='Agent')
     obs_scatter = ax.scatter([], [], c='gray', s=200, edgecolors='black', linewidths=1, label='Obstacle')
 
@@ -206,6 +229,23 @@ def _generate_animation_standardized_unused(agent_list, r_min, filename=None, nu
                               facecolor='yellow', edgecolor='red', linewidth=2, alpha=0.4, zorder=1)
             ax.add_patch(pad_circle)
             ax.plot(pad[0], pad[1], 'P', color='red', markersize=15, zorder=2)
+
+            # Phase 6: per-drone home pads (drawn only when uav.home_pad
+            # differs from the main pad, i.e. round-trip scenarios).
+            home_pad_radius = StandardizedEnvironment.LANDING_PAD_RADIUS * 0.6
+            for i, ag in enumerate(agent_list[:num_moving_agents or len(agent_list)]):
+                home = getattr(ag, 'home_pad', None)
+                if home is None:
+                    continue
+                if np.linalg.norm(np.asarray(home) - np.asarray(pad)) < 1e-3:
+                    continue  # same as main pad -- skip
+                color = colors[i % len(colors)]
+                ax.add_patch(Circle(home, radius=home_pad_radius,
+                                    facecolor=color, edgecolor='black',
+                                    linewidth=1, alpha=0.25, zorder=1))
+                ax.add_patch(Circle(home, radius=home_pad_radius,
+                                    facecolor='none', edgecolor=color,
+                                    linewidth=2, linestyle='--', zorder=2))
         
         # Only draw moving agents (skip stationary wall agents)
         n_moving = num_moving_agents if num_moving_agents is not None else len(agent_list)
@@ -360,14 +400,21 @@ def main():
         # Round-trip params - Phase 6, supersedes negotiation_params when present
         round_trip_params = None
         if scenario_config.get('round_trip', False) and cargo_configs is not None:
+            # Per-drone return points: explicit `return_point` field if
+            # present, else fall back to the drone's start position.
+            return_points = [
+                np.array(d.get('return_point', d['start']), dtype=float)
+                for d in drones
+            ]
             round_trip_params = {
+                'return_points': return_points,
                 'n_trips':        scenario_config.get('n_trips',       2),
                 'unload_steps':   scenario_config.get('unload_steps',  5),
                 'orbit_radius':   scenario_config.get('orbit_radius',  0.7),
                 'orbit_speed':    scenario_config.get('orbit_speed',   0.15),
                 'safe_distance':  scenario_config.get('safe_distance', 1.2),
                 'nominal_speed':  scenario_config.get('nominal_speed', 0.1),
-                'eta_threshold':  scenario_config.get('eta_threshold', 0.15),
+                'eta_threshold': scenario_config.get('eta_threshold', 0.15),
                 'use_hysteresis': scenario_config.get('use_hysteresis', True),
             }
 

@@ -10,7 +10,7 @@ Per-drone trip state machine:
     INBOUND  -> drone is heading to the pad (competes for landing slot)
     UNLOADING -> sitting on the pad with v=0 for `unload_steps` ticks
     OUTBOUND  -> heading back to its return point (NOT competing for pad)
-    DONE      -> all `n_trips` round trips finished; teleported off-screen
+    DONE      -> all `n_trips` round trips finished; parked at home pad
 
 Only INBOUND drones participate in Phase 4 negotiation. OUTBOUND drones
 are still processed by MPC (so they actually fly home) and are visible
@@ -67,20 +67,27 @@ class RoundTripController(NegotiationController):
         so it can swap goals between PAD_CENTER and the return point."""
         self._target_ref = target_array
 
-    def _ensure_init(self, num_moving_drones):
+    def _ensure_init(self, num_moving_drones, agent_list=None):
         if self._initialized:
             return
         for j in range(num_moving_drones):
             self._state[j]            = INBOUND
             self._unload_remaining[j] = 0
             self._trips_done[j]       = 0
+        # Stamp each drone's home pad onto its uav for visualisation.
+        # Defaults to ini_p (already set by uav.__init__) but is overridden
+        # here when the scenario provides explicit return_points.
+        if agent_list is not None:
+            for j in range(min(num_moving_drones, len(agent_list))):
+                if j < len(self._return_points):
+                    agent_list[j].home_pad = self._return_points[j].copy()
         self._initialized = True
 
     # ------------------------------------------------------------------
     # Override: only INBOUND drones compete for the pad
     # ------------------------------------------------------------------
     def select_active_drone(self, agent_list, active_drones, step, verbose):
-        self._ensure_init(len(agent_list))
+        self._ensure_init(len(agent_list), agent_list)
         inbound = [j for j in active_drones
                    if self._state.get(j, INBOUND) == INBOUND]
         if not inbound:
@@ -103,7 +110,7 @@ class RoundTripController(NegotiationController):
     # Override: do not teleport on landing - manage round-trip FSM
     # ------------------------------------------------------------------
     def cleanup_landed(self, agent_list, target_reached, num_moving_drones, K):
-        self._ensure_init(num_moving_drones)
+        self._ensure_init(num_moving_drones, agent_list)
 
         for j in range(num_moving_drones):
             if not target_reached[j]:
@@ -121,11 +128,16 @@ class RoundTripController(NegotiationController):
             elif state == OUTBOUND:
                 # Just reached the return point - count the trip.
                 self._trips_done[j] += 1
+                home = agent_list[j].home_pad
                 if self._trips_done[j] >= self._n_trips:
                     self._state[j] = DONE
-                    self._teleport_away(agent_list[j], K)
+                    # Park at home pad (NOT teleport off-screen) so the
+                    # drone is rendered resting where it belongs and acts
+                    # as a static obstacle for any drones still flying.
+                    self._park(agent_list[j], home, K)
                     print(f"  [Phase 6] Drone {j}: OUTBOUND -> DONE "
-                          f"(completed {self._trips_done[j]} trips)")
+                          f"(parked at home {home.tolist()}, "
+                          f"completed {self._trips_done[j]} trips)")
                 else:
                     # Begin the next inbound leg.
                     self._state[j] = INBOUND
@@ -135,8 +147,8 @@ class RoundTripController(NegotiationController):
                           f"(starting trip {self._trips_done[j] + 1})")
 
             elif state == DONE:
-                # Keep parked off-screen.
-                self._teleport_away(agent_list[j], K)
+                # Keep parked at home pad each step.
+                self._park(agent_list[j], agent_list[j].home_pad, K)
 
             # UNLOADING: handled by step_update countdown.
 
@@ -145,7 +157,7 @@ class RoundTripController(NegotiationController):
     # ------------------------------------------------------------------
     def step_update(self, agent_list, target_reached, num_moving_drones):
         super().step_update(agent_list, target_reached, num_moving_drones)
-        self._ensure_init(num_moving_drones)
+        self._ensure_init(num_moving_drones, agent_list)
 
         for j in range(num_moving_drones):
             if self._state[j] != UNLOADING:
@@ -171,13 +183,6 @@ class RoundTripController(NegotiationController):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    @staticmethod
-    def _teleport_away(agent, K):
-        agent.p     = np.array([100.0, 100.0])
-        agent.v     = np.zeros(2)
-        agent.state = np.append(agent.p, agent.v)
-        agent.pre_traj = np.tile(np.array([100.0, 100.0]), (K + 1, 1))
-
     @staticmethod
     def _park(agent, position, K):
         """Freeze the agent in place at `position` (used during UNLOADING)."""
