@@ -29,6 +29,11 @@ class uav():
         self.patient_acuity = patient_acuity    # 'critical' | 'urgent' | 'routine'
         self.tte_history = [float(time_to_expiry)]   # TTE recorded each animation frame
 
+        # ── Phase 6: home pad (where this drone returns between trips) ──
+        # Default to the start position; RoundTripController will overwrite
+        # this from the scenario's `return_point` field if provided.
+        self.home_pad = ini_x.copy()
+
         # current position
         self.p=ini_x.copy()
 
