@@ -38,23 +38,26 @@ cd src/methods/Social-IMPC-DR
 conda activate smglib
 ```
 
-Run a policy/yield scenario:
+Run a policy/yield scenario (preferred **track** configs in `configs/`):
 
 ```bash
-python app2_standardized.py landing_pad configs/phase1_landing_pad.json
-python app2_standardized.py landing_pad configs/phase2_landing_pad.json
-python app2_standardized.py landing_pad configs/phase3_orbit.json
-python app2_standardized.py landing_pad configs/phase4_negotiation.json
-python app2_standardized.py landing_pad configs/phase6_round_trip.json
+python app2_standardized.py landing_pad configs/track_policy_baseline_closest.json
+python app2_standardized.py landing_pad configs/track_policy_priority.json
+python app2_standardized.py landing_pad configs/track_policy_orbit_hold.json
+python app2_standardized.py landing_pad configs/track_policy_negotiation.json
+python app2_standardized.py landing_pad configs/track_policy_round_trip.json
 ```
 
-Rule-isolation checks:
+Focused negotiation checks:
 
 ```bash
-python app2_standardized.py landing_pad configs/phase4_expiry_guard_test.json
-python app2_standardized.py landing_pad configs/phase4_eta_switch_test.json
-python app2_standardized.py landing_pad configs/phase4_negotiation_no_hysteresis.json
+python app2_standardized.py landing_pad configs/track_policy_negotiation_expiry_guard.json
+python app2_standardized.py landing_pad configs/track_policy_negotiation_eta_switch.json
+python app2_standardized.py landing_pad configs/track_policy_negotiation_no_hysteresis.json
 ```
+
+Legacy `phase*.json` files in `configs/` are kept as duplicates of the same
+scenarios for backward compatibility; prefer `track_policy_*.json` for new work.
 
 Animations are saved to `logs/Social-IMPC-DR/animations/`.
 
@@ -62,10 +65,18 @@ Animations are saved to `logs/Social-IMPC-DR/animations/`.
 
 ## Configuration
 
-Scenario configs are currently legacy `phase*.json` names for compatibility.
-They are treated as Track 1 scenarios in this branch.
+| Config file | What it exercises |
+|---|---|
+| `track_policy_baseline_closest.json` | Closest-first, no cargo priority |
+| `track_policy_priority.json` | Priority scoring only |
+| `track_policy_orbit_hold.json` | Priority + orbit holding while yielding |
+| `track_policy_negotiation.json` | Priority + orbit + ETA/expiry negotiation |
+| `track_policy_negotiation_no_hysteresis.json` | Same as negotiation demo, `use_hysteresis: false` |
+| `track_policy_negotiation_expiry_guard.json` | Stresses expiry-guard behavior |
+| `track_policy_negotiation_eta_switch.json` | Stresses ETA-switch behavior |
+| `track_policy_round_trip.json` | Full stack + round-trip FSM |
 
-Core fields:
+Core JSON fields:
 
 - `use_priority`: enable priority scoring instead of closest-first
 - `use_orbit`: move yielding drones in circular holding orbits

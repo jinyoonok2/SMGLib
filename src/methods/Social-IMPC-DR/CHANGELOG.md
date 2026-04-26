@@ -5,6 +5,15 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Track 1] — Behavior-oriented scenario configs
+
+### Added
+- **`configs/track_policy_*.json`**: same scenarios as legacy `phase*.json`,
+  with `test_name` matching the track-oriented filename. Prefer these for new
+  documentation and experiments; legacy names remain for compatibility.
+
+---
+
 ## [Phase 6] — Round-Trip Scenarios
 
 ### Added
