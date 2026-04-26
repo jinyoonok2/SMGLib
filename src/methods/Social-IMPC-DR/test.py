@@ -7,7 +7,7 @@ import pickle
 import copy
 import os
 import csv
-from policy_yield_factory import build_policy_yield_controller
+from policy_yield import build_policy_yield_controller
 
 def data_capture(a, b, c):
     data = {
@@ -30,7 +30,7 @@ def initialize(cargo_configs=None):
 
     return agent_list
 
-def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, orbit_params=None, negotiation_params=None, round_trip_params=None):
+def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, policy_recipe=None):
 
     # os.sched_setaffinity(0,[0,1,2,3,4,5,6,7])
     
@@ -80,16 +80,13 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     # Track which drones were yielding in the previous step (for MPC reset on release)
     pad_previously_yielding = set()
 
-    # Landing pad: Track 1 policy/yield stack (single factory entry point)
+    # Landing pad: build the Track 1 policy/yield controller from the
+    # scenario recipe. The recipe selects the lifecycle / selector /
+    # yielder / negotiators as peer plugins (see policy_yield/registry.py).
     if env_type == 'landing_pad':
         controller = build_policy_yield_controller(
-            ini_x,
-            target,
-            num_moving_drones,
-            cargo_configs=cargo_configs,
-            orbit_params=orbit_params,
-            negotiation_params=negotiation_params,
-            round_trip_params=round_trip_params,
+            target=target,
+            policy_recipe=policy_recipe,
         )
     else:
         controller = None
@@ -162,7 +159,8 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         if verbose:
             print("Step %s have finished, running time is %s"%(i,end-end_last))
 
-        # Per-step hook (e.g. expiry countdown when priority metadata is present)
+        # Per-step hook: lifecycle FSM advances + selector-driven state
+        # (e.g. priority TTE countdown) is updated here.
         if controller is not None:
             controller.step_update(agent_list, target_reached, num_moving_drones)
     

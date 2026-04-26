@@ -54,9 +54,9 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     # Use standardized colors
     colors = StandardizedEnvironment.AGENT_COLORS
 
-    # Phase 6: per-drone home pads (drawn only when uav.home_pad differs
-    # from the main pad, i.e. round-trip scenarios with explicit return
-    # points). Static patches added once before animation starts.
+    # Round-trip lifecycle: per-drone home pads (drawn only when
+    # uav.home_pad differs from the main pad). Static patches added once
+    # before animation starts.
     if scenario_type == 'landing_pad':
         _main_pad = StandardizedEnvironment.LANDING_PAD_CENTER
         _home_radius = StandardizedEnvironment.LANDING_PAD_RADIUS * 0.6
@@ -230,8 +230,8 @@ def _generate_animation_standardized_unused(agent_list, r_min, filename=None, nu
             ax.add_patch(pad_circle)
             ax.plot(pad[0], pad[1], 'P', color='red', markersize=15, zorder=2)
 
-            # Phase 6: per-drone home pads (drawn only when uav.home_pad
-            # differs from the main pad, i.e. round-trip scenarios).
+            # Round-trip lifecycle: per-drone home pads (drawn only when
+            # uav.home_pad differs from the main pad).
             home_pad_radius = StandardizedEnvironment.LANDING_PAD_RADIUS * 0.6
             for i, ag in enumerate(agent_list[:num_moving_agents or len(agent_list)]):
                 home = getattr(ag, 'home_pad', None)
@@ -363,62 +363,48 @@ def main():
         target_moving = [np.array(d['goal']) for d in drones]
         ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
-        # Cargo configs — read directly from each drone entry
+        # Policy recipe drives the flat plugin model in policy_yield/.
+        # Scenario JSONs declare a "policy" block with the components to
+        # compose; cargo metadata is still read from each drone entry.
+        policy_recipe = scenario_config.get('policy') if env_type == 'landing_pad' else None
         cargo_configs = None
-        if scenario_config.get('use_priority', False) and env_type == 'landing_pad':
-            cargo_configs = [
-                {
-                    'cargo_type': d['cargo_type'],
-                    'time_to_expiry': d['time_to_expiry'],
-                    'patient_acuity': d['patient_acuity']
-                }
-                for d in drones
-            ]
+        if env_type == 'landing_pad' and policy_recipe is not None:
+            selector_name = policy_recipe.get('selector', 'closest_first')
+            uses_cargo = (
+                selector_name == 'priority'
+                or 'expiry_guard' in (policy_recipe.get('negotiators') or [])
+                or 'eta_switch'   in (policy_recipe.get('negotiators') or [])
+            )
+            if uses_cargo:
+                cargo_configs = [
+                    {
+                        'cargo_type':      d['cargo_type'],
+                        'time_to_expiry':  d['time_to_expiry'],
+                        'patient_acuity':  d['patient_acuity'],
+                    }
+                    for d in drones
+                ]
 
-        # Orbit params — only used when use_orbit is true
-        orbit_params = None
-        if scenario_config.get('use_orbit', False) and cargo_configs is not None:
-            orbit_params = {
-                'orbit_radius':   scenario_config.get('orbit_radius',  0.7),
-                'orbit_speed':    scenario_config.get('orbit_speed',   0.15),
-                'safe_distance':  scenario_config.get('safe_distance', 1.2),
-                'use_hysteresis': scenario_config.get('use_hysteresis', True),
-            }
+            # Round-trip lifecycle: per-drone return points read here so
+            # the recipe is fully resolved before reaching the registry.
+            if policy_recipe.get('lifecycle') == 'round_trip':
+                policy_recipe = dict(policy_recipe)
+                policy_recipe['return_points'] = [
+                    np.array(d.get('return_point', d['start']), dtype=float)
+                    for d in drones
+                ]
 
-        # Negotiation params - Phase 4, supersedes orbit_params when present
-        negotiation_params = None
-        if scenario_config.get('use_negotiation', False) and cargo_configs is not None:
-            negotiation_params = {
-                'orbit_radius':   scenario_config.get('orbit_radius',   0.7),
-                'orbit_speed':    scenario_config.get('orbit_speed',    0.15),
-                'safe_distance':  scenario_config.get('safe_distance',  1.2),
-                'nominal_speed':  scenario_config.get('nominal_speed',  0.1),
-                'eta_threshold':  scenario_config.get('eta_threshold',  0.15),
-                'use_hysteresis': scenario_config.get('use_hysteresis', True),
-            }
-
-        # Round-trip params - Phase 6, supersedes negotiation_params when present
-        round_trip_params = None
-        if scenario_config.get('round_trip', False) and cargo_configs is not None:
-            # Per-drone return points: explicit `return_point` field if
-            # present, else fall back to the drone's start position.
-            return_points = [
-                np.array(d.get('return_point', d['start']), dtype=float)
-                for d in drones
-            ]
-            round_trip_params = {
-                'return_points': return_points,
-                'n_trips':        scenario_config.get('n_trips',       2),
-                'unload_steps':   scenario_config.get('unload_steps',  5),
-                'orbit_radius':   scenario_config.get('orbit_radius',  0.7),
-                'orbit_speed':    scenario_config.get('orbit_speed',   0.15),
-                'safe_distance':  scenario_config.get('safe_distance', 1.2),
-                'nominal_speed':  scenario_config.get('nominal_speed', 0.1),
-                'eta_threshold': scenario_config.get('eta_threshold', 0.15),
-                'use_hysteresis': scenario_config.get('use_hysteresis', True),
-            }
-
-        print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}, orbit={scenario_config.get('use_orbit', False)}, negotiation={scenario_config.get('use_negotiation', False)}")
+        if policy_recipe is not None:
+            print(
+                f"[Config mode] env={env_type}, drones={num_moving_drones}, "
+                f"selector={policy_recipe.get('selector')}, "
+                f"yielder={policy_recipe.get('yielder')}, "
+                f"lifecycle={policy_recipe.get('lifecycle')}, "
+                f"negotiators={policy_recipe.get('negotiators') or []}, "
+                f"hysteresis={policy_recipe.get('use_hysteresis', False)}"
+            )
+        else:
+            print(f"[Config mode] env={env_type}, drones={num_moving_drones}")
         for i, d in enumerate(drones):
             print(f"  Drone {i}: start={d['start']}, goal={d['goal']}")
 
@@ -493,35 +479,43 @@ def main():
 
         ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
-        # --- Phase 2/3: Cargo priority / orbit configuration (landing_pad only) ---
+        # --- Interactive cargo / policy configuration (landing_pad only) ---
+        # Interactive mode supports the basic priority selector + freeze
+        # yielder. For the full plugin matrix (orbit, negotiation, round
+        # trip, ...) use a scenario JSON with a "policy" block.
         cargo_configs = None
-        orbit_params = None
+        policy_recipe = None
         if env_type == 'landing_pad':
-            # Load defaults from phase2 scenario config
-            phase2_cfg_path = Path(__file__).resolve().parent / 'scenarios' / 'phase2_landing_pad.json'
-            with open(phase2_cfg_path, 'r') as f:
-                phase2_cfg = json.load(f)
-            default_cargos = [
-                {'cargo_type': d['cargo_type'], 'time_to_expiry': d['time_to_expiry'], 'patient_acuity': d['patient_acuity']}
-                for d in phase2_cfg['drones']
-            ]
-
-            print("\n--- Cargo Priority Configuration ---")
+            print("\n--- Policy Configuration ---")
             print("Cargo types: organ, blood_product, medication, equipment")
             print("Patient acuity: critical, urgent, routine")
             use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
-            orbit_params = None  # interactive mode does not support orbit
-            negotiation_params = None
-            round_trip_params = None  # interactive mode does not support round trip
             if use_priority.lower() == 'y':
                 cargo_configs = []
+                default_cargos = [
+                    {'cargo_type': 'organ',      'time_to_expiry': 60.0,  'patient_acuity': 'critical'},
+                    {'cargo_type': 'equipment',  'time_to_expiry': 200.0, 'patient_acuity': 'routine'},
+                    {'cargo_type': 'medication', 'time_to_expiry': 150.0, 'patient_acuity': 'urgent'},
+                ]
                 for i in range(num_moving_drones):
-                    dfl = default_cargos[i] if i < len(default_cargos) else default_cargos[-1]
+                    dfl = default_cargos[i % len(default_cargos)]
                     print(f"\n  Drone {i} cargo:")
                     ct = get_input(f"    Cargo type", dfl['cargo_type'], str)
                     te = get_input(f"    Time to expiry (steps)", dfl['time_to_expiry'], float)
                     pa = get_input(f"    Patient acuity", dfl['patient_acuity'], str)
                     cargo_configs.append({'cargo_type': ct, 'time_to_expiry': te, 'patient_acuity': pa})
+                policy_recipe = {
+                    'selector':       'priority',
+                    'yielder':        'freeze',
+                    'lifecycle':      'one_way',
+                    'use_hysteresis': True,
+                }
+            else:
+                policy_recipe = {
+                    'selector':  'closest_first',
+                    'yielder':   'freeze',
+                    'lifecycle': 'one_way',
+                }
 
     # --- Combine moving and stationary agents ---
     ini_x = ini_x_moving + obstacle_agents_x
@@ -530,7 +524,7 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
-    result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, orbit_params=orbit_params, negotiation_params=negotiation_params, round_trip_params=round_trip_params)
+    result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, policy_recipe=policy_recipe)
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:
@@ -538,22 +532,19 @@ def main():
     
     if result:
         print("\nSimulation completed successfully!")
-        # Tag the filename with the active controller so phases don't overwrite each other
-        if round_trip_params is not None:
-            controller_tag = 'round_trip'
-        elif negotiation_params is not None:
-            controller_tag = 'negotiation'
-        elif orbit_params is not None:
-            controller_tag = 'orbit'
-        elif cargo_configs is not None:
-            controller_tag = 'priority'
+        # Tag the GIF with the active recipe so different runs do not collide.
+        if policy_recipe is not None:
+            controller_tag = (
+                f"{policy_recipe.get('lifecycle','one_way')}"
+                f"_{policy_recipe.get('selector','closest_first')}"
+                f"_{policy_recipe.get('yielder','freeze')}"
+            )
         else:
             controller_tag = 'base'
-        # Include config file stem so different test scenarios don't overwrite each other
         if scenario_config and scenario_config.get('test_name'):
             gif_filename = f"{scenario_config['test_name']}.gif"
         elif len(sys.argv) > 2 and sys.argv[2].endswith('.json'):
-            config_stem = Path(sys.argv[2]).stem  # e.g. phase4_expiry_guard_test
+            config_stem = Path(sys.argv[2]).stem
             gif_filename = f"{config_stem}.gif"
         else:
             gif_filename = f"{env_type}_{num_moving_drones}agents_{controller_tag}.gif"

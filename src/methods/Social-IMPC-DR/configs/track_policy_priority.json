@@ -9,7 +9,12 @@
     "step_size": 0.1,
     "k_value": 10,
     "max_steps": 200,
-    "use_priority": true,
+    "policy": {
+        "selector":       "priority",
+        "yielder":        "freeze",
+        "lifecycle":      "one_way",
+        "use_hysteresis": true
+    },
     "drones": [
         {"start": [0.0, 3.0],  "goal": [0.0, 0.0], "cargo_type": "organ",      "time_to_expiry": 60.0,  "patient_acuity": "critical"},
         {"start": [0.0, -3.0], "goal": [0.0, 0.0], "cargo_type": "equipment",  "time_to_expiry": 200.0, "patient_acuity": "routine"},

@@ -5,12 +5,60 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Track 1] — Flat plugin model for the policy/yield controller
+
+### Added
+- **`policy_yield/` package** with peer-level policy components:
+  - `selectors.py` — `closest_first`, `priority`
+  - `yielders.py`  — `freeze`, `orbit`
+  - `lifecycles.py` — `one_way`, `round_trip`
+  - `negotiators.py` — `expiry_guard`, `eta_switch`
+  - `controller.py` — single `PolicyYieldController` that composes one
+    selector / yielder / lifecycle and zero or more negotiator peers.
+  - `registry.py` — name-keyed builder; new policies plug in by adding a
+    class and one registry entry. No subclassing required.
+- **Recipe-driven scenarios**: each `track_policy_*.json` now declares a
+  `policy` block (`selector`, `yielder`, `lifecycle`, `negotiators`,
+  `use_hysteresis`, plus per-component params). Behaviour at runtime is
+  identical to the previous Phase 1–6 stack.
+
+### Changed
+- `test.py` builds the controller through `policy_yield.build_policy_yield_controller`
+  and threads a single `policy_recipe` through `PLAN(...)` instead of three
+  separate `orbit_params` / `negotiation_params` / `round_trip_params` dicts.
+- `app2_standardized.py` reads the `policy` block from scenario JSON and
+  resolves `return_points` for the `round_trip` lifecycle once at startup;
+  GIF filenames are tagged with `lifecycle_selector_yielder` in fallback
+  mode.
+
+### Removed
+- Legacy inheritance stack: `landing_pad.py`, `priority_manager.py`,
+  `orbit_controller.py`, `negotiation_controller.py`,
+  `round_trip_controller.py`.
+- Intermediate adaptor `policy_yield_factory.py` (replaced by
+  `policy_yield/registry.py`).
+- Phase-named scenario configs `configs/phase{1,2,3,4,4.1,6}*.json`. Use
+  the equivalent `configs/track_policy_*.json` recipes instead.
+- LLM scaffold `llm_controller.py` (LLM extensions live on a dedicated
+  child branch — see `LLM_BRANCH_BOOTSTRAP.md`).
+- Quick-test helper `test_phase2.py`.
+
+### Migration
+- Replace `from landing_pad import LandingPadController` (or any sibling
+  controller) with `from policy_yield import build_policy_yield_controller`
+  and a `policy` recipe dict.
+- Old scenarios with `use_priority` / `use_orbit` / `use_negotiation` /
+  `round_trip` flags translate directly to a `policy` block; see the
+  `track_policy_*.json` files for examples.
+
+---
+
 ## [Track 1] — Behavior-oriented scenario configs
 
 ### Added
-- **`configs/track_policy_*.json`**: same scenarios as legacy `phase*.json`,
-  with `test_name` matching the track-oriented filename. Prefer these for new
-  documentation and experiments; legacy names remain for compatibility.
+- **`configs/track_policy_*.json`**: behaviour-named scenarios (the eight
+  current ones cover baseline, priority, orbit, negotiation variants, and
+  round-trip).
 
 ---
 

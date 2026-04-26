@@ -1,33 +1,43 @@
 # Social-IMPC-DR — Track 1 (Policy/Yield)
 
 Track 1 focuses on **single-winner landing-pad control** for medical drone
-coordination. Drones share one central pad; one inbound drone gets pad access,
-and others yield according to policy rules.
+coordination. Drones share one central pad; one inbound drone gets pad access
+while the others yield according to a chosen policy.
 
-This branch intentionally excludes planner-first framing. Planner work is
-developed in `research/track-trajectory-planner`.
+This branch intentionally excludes planner-first framing. Planner work lives in
+`research/track-trajectory-planner`.
 
 ---
 
-## Scope Of This Track
+## Architecture: flat plugin model
 
-This branch covers the policy/yield family:
-
-- closest-first baseline (`LandingPadController`)
-- priority scoring (`PriorityManager`)
-- orbit-based holding for yielding drones (`OrbitController`)
-- ETA/expiry negotiation (`NegotiationController`)
-- round-trip lifecycle with inbound/unloading/outbound FSM (`RoundTripController`)
-
-### Included Controllers
+Track 1 is built around a single `PolicyYieldController` that *composes* peer
+policy components. There is no inheritance chain — each component is selected
+independently in the scenario JSON.
 
 ```
-LandingPadController
-  -> PriorityManager
-      -> OrbitController
-          -> NegotiationController
-              -> RoundTripController
+PolicyYieldController
+├── selector     (closest_first | priority)
+├── yielder      (freeze | orbit)
+├── lifecycle    (one_way   | round_trip)
+├── negotiators  ([]  |  [expiry_guard, eta_switch, ...])   # zero or more peers
+└── use_hysteresis: bool                                     # optional toggle
 ```
+
+Each role lives in its own module and is registered by name:
+
+| Role            | Module                          | Implementations                   |
+|-----------------|---------------------------------|-----------------------------------|
+| Selector        | `policy_yield/selectors.py`     | `closest_first`, `priority`       |
+| Yielder         | `policy_yield/yielders.py`      | `freeze`, `orbit`                 |
+| Lifecycle       | `policy_yield/lifecycles.py`    | `one_way`, `round_trip`           |
+| Negotiator      | `policy_yield/negotiators.py`   | `expiry_guard`, `eta_switch`      |
+| Orchestrator    | `policy_yield/controller.py`    | `PolicyYieldController`           |
+| Recipe builder  | `policy_yield/registry.py`      | `build_policy_yield_controller`   |
+
+Adding a new policy is a peer change — implement the role's interface,
+register the name in `policy_yield/registry.py`, and reference it from any
+scenario. No existing class needs to be subclassed or modified.
 
 ---
 
@@ -38,7 +48,7 @@ cd src/methods/Social-IMPC-DR
 conda activate smglib
 ```
 
-Run a policy/yield scenario (preferred **track** configs in `configs/`):
+Run a policy/yield scenario (configs are named by behaviour, not phase):
 
 ```bash
 python app2_standardized.py landing_pad configs/track_policy_baseline_closest.json
@@ -56,53 +66,90 @@ python app2_standardized.py landing_pad configs/track_policy_negotiation_eta_swi
 python app2_standardized.py landing_pad configs/track_policy_negotiation_no_hysteresis.json
 ```
 
-Legacy `phase*.json` files in `configs/` are kept as duplicates of the same
-scenarios for backward compatibility; prefer `track_policy_*.json` for new work.
-
 Animations are saved to `logs/Social-IMPC-DR/animations/`.
 
 ---
 
-## Configuration
+## Scenario Configuration
 
-| Config file | What it exercises |
-|---|---|
-| `track_policy_baseline_closest.json` | Closest-first, no cargo priority |
-| `track_policy_priority.json` | Priority scoring only |
-| `track_policy_orbit_hold.json` | Priority + orbit holding while yielding |
-| `track_policy_negotiation.json` | Priority + orbit + ETA/expiry negotiation |
-| `track_policy_negotiation_no_hysteresis.json` | Same as negotiation demo, `use_hysteresis: false` |
-| `track_policy_negotiation_expiry_guard.json` | Stresses expiry-guard behavior |
-| `track_policy_negotiation_eta_switch.json` | Stresses ETA-switch behavior |
-| `track_policy_round_trip.json` | Full stack + round-trip FSM |
+Each scenario JSON has a `policy` block selecting one component per role
+plus a list of negotiator peers. Example (`track_policy_round_trip.json`):
 
-Core JSON fields:
+```json
+{
+    "test_name": "track_policy_round_trip",
+    "env_type": "landing_pad",
+    "num_moving_drones": 3,
+    "max_steps": 1000,
+    "policy": {
+        "selector":       "priority",
+        "yielder":        "orbit",
+        "lifecycle":      "round_trip",
+        "negotiators":    ["expiry_guard", "eta_switch"],
+        "use_hysteresis": true,
+        "orbit_radius":   0.7,
+        "orbit_speed":    0.15,
+        "safe_distance":  1.2,
+        "nominal_speed":  0.1,
+        "eta_threshold":  0.15,
+        "n_trips":        2,
+        "unload_steps":   5
+    },
+    "drones": [ ... ]
+}
+```
 
-- `use_priority`: enable priority scoring instead of closest-first
-- `use_orbit`: move yielding drones in circular holding orbits
-- `use_negotiation`: enable ETA Switch + Expiry Guard
-- `use_hysteresis`: keep winner stable until landing
-- `round_trip`: enable inbound/unloading/outbound trip lifecycle
-- `n_trips`, `unload_steps`: round-trip behavior controls
+### Recipe fields
+
+| Key               | Purpose                                                          |
+|-------------------|------------------------------------------------------------------|
+| `selector`        | `closest_first` (distance-first) or `priority` (priority score)  |
+| `yielder`         | `freeze` (zero velocity) or `orbit` (circular hold)              |
+| `lifecycle`       | `one_way` (land once) or `round_trip` (FSM with unload + return) |
+| `negotiators`     | List of peer overrides applied in order                          |
+| `use_hysteresis`  | If true, the current winner stays winner until they finish       |
+| `orbit_*`         | Radius / angular speed / safe distance for the orbit yielder     |
+| `nominal_speed`   | Used to compute ETA in negotiators                               |
+| `eta_threshold`   | Score-gap threshold below which `eta_switch` fires               |
+| `n_trips`         | Round-trip lifecycle: number of round trips before `DONE`        |
+| `unload_steps`    | Round-trip lifecycle: pad-occupancy time per landing             |
+
+### Scenario reference
+
+| Config file                                          | Recipe summary                                                              |
+|------------------------------------------------------|-----------------------------------------------------------------------------|
+| `track_policy_baseline_closest.json`                 | `closest_first` + `freeze` + `one_way`                                      |
+| `track_policy_priority.json`                         | `priority` + `freeze` + `one_way` + hysteresis                              |
+| `track_policy_orbit_hold.json`                       | `priority` + `orbit` + `one_way` + hysteresis                               |
+| `track_policy_negotiation.json`                      | `priority` + `orbit` + `one_way` + `[expiry_guard, eta_switch]` + hysteresis|
+| `track_policy_negotiation_no_hysteresis.json`        | Same as above with `use_hysteresis: false`                                  |
+| `track_policy_negotiation_expiry_guard.json`         | Negotiation stack tuned to stress the expiry-guard rule                     |
+| `track_policy_negotiation_eta_switch.json`           | Negotiation stack tuned to stress the ETA-switch rule                       |
+| `track_policy_round_trip.json`                       | Full negotiation stack + `round_trip` lifecycle                             |
 
 ---
 
-## Architecture
+## File Layout
 
-- `policy_yield_factory.py`: **single wiring point** — builds the right
-  policy/yield controller from scenario flags (baseline, priority, orbit,
-  negotiation, round-trip)
-- `app2_standardized.py`: entrypoint (scenario config or interactive mode)
-- `test.py`: simulation loop and controller dispatch
-- `priority.py`: weighted medical-priority scoring
-- `landing_pad.py`: baseline winner/yield control
-- `priority_manager.py`: priority-based selection and expiry stepping
-- `orbit_controller.py`: orbit holding for yielding drones
-- `negotiation_controller.py`: Expiry Guard + ETA Switch
-- `round_trip_controller.py`: trip-state machine and target swapping
+```
+Social-IMPC-DR/
+├── policy_yield/                # flat plugin package
+│   ├── controller.py            # PolicyYieldController orchestrator
+│   ├── registry.py              # recipe -> controller builder
+│   ├── selectors.py             # closest_first, priority
+│   ├── yielders.py              # freeze, orbit
+│   ├── lifecycles.py            # one_way, round_trip
+│   ├── negotiators.py           # expiry_guard, eta_switch
+│   └── context.py               # per-step Context + PAD_CENTER
+├── app2_standardized.py         # entry point (config or interactive)
+├── test.py                      # simulation loop, calls into the controller
+├── priority.py                  # weighted medical priority score
+├── configs/track_policy_*.json  # behaviour-named scenarios
+└── ...                          # MPC core (run.py, avoid.py, uav.py, SET.py, ...)
+```
 
-The MPC core and low-level dynamics from original Social-IMPC-DR remain in
-`run.py`, `avoid.py`, and UAV model files.
+The MPC core (`run.py`, `avoid.py`, `uav.py`, etc.) is unchanged from upstream
+Social-IMPC-DR.
 
 ---
 
@@ -111,6 +158,8 @@ The MPC core and low-level dynamics from original Social-IMPC-DR remain in
 - This branch is **Track 1 only** (policy/yield family).
 - Planner-first scheduling work (simultaneous arrival speed planning) lives in
   `research/track-trajectory-planner`.
+- LLM extensions for either track are developed on dedicated child branches
+  (see `LLM_BRANCH_BOOTSTRAP.md`).
 
 ---
 

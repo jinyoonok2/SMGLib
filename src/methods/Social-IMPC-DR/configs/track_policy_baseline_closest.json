@@ -9,7 +9,11 @@
     "step_size": 0.1,
     "k_value": 10,
     "max_steps": 100,
-    "use_priority": false,
+    "policy": {
+        "selector":  "closest_first",
+        "yielder":   "freeze",
+        "lifecycle": "one_way"
+    },
     "drones": [
         {"start": [0.0, 3.0],  "goal": [0.0, 0.0]},
         {"start": [0.0, -3.0], "goal": [0.0, 0.0]}
