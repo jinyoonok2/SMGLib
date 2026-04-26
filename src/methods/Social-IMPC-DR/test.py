@@ -7,11 +7,7 @@ import pickle
 import copy
 import os
 import csv
-from landing_pad import LandingPadController
-from priority_manager import PriorityManager
-from orbit_controller import OrbitController
-from negotiation_controller import NegotiationController
-from round_trip_controller import RoundTripController
+from policy_yield_factory import build_policy_yield_controller
 
 def data_capture(a, b, c):
     data = {
@@ -84,46 +80,17 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     # Track which drones were yielding in the previous step (for MPC reset on release)
     pad_previously_yielding = set()
 
-    # Pick the appropriate controller for landing pad scenarios
+    # Landing pad: Track 1 policy/yield stack (single factory entry point)
     if env_type == 'landing_pad':
-        if cargo_configs and round_trip_params:
-            controller = RoundTripController(      # Phase 6
-                cargo_configs,
-                return_points=round_trip_params.get(
-                    'return_points',
-                    [ini_x[i] for i in range(num_moving_drones)],
-                ),
-                n_trips=round_trip_params.get('n_trips', 2),
-                unload_steps=round_trip_params.get('unload_steps', 5),
-                orbit_radius=round_trip_params.get('orbit_radius', 0.7),
-                orbit_speed=round_trip_params.get('orbit_speed', 0.15),
-                safe_distance=round_trip_params.get('safe_distance', 1.2),
-                nominal_speed=round_trip_params.get('nominal_speed', 0.1),
-                eta_threshold=round_trip_params.get('eta_threshold', 0.15),
-                use_hysteresis=round_trip_params.get('use_hysteresis', True),
-            )
-            controller.bind(target)
-        elif cargo_configs and negotiation_params:
-            controller = NegotiationController(    # Phase 4
-                cargo_configs,
-                orbit_radius=negotiation_params.get('orbit_radius', 0.7),
-                orbit_speed=negotiation_params.get('orbit_speed', 0.15),
-                safe_distance=negotiation_params.get('safe_distance', 1.2),
-                nominal_speed=negotiation_params.get('nominal_speed', 0.1),
-                eta_threshold=negotiation_params.get('eta_threshold', 0.15),
-                use_hysteresis=negotiation_params.get('use_hysteresis', True),
-            )
-        elif cargo_configs and orbit_params:
-            controller = OrbitController(           # Phase 3
-                cargo_configs,
-                orbit_radius=orbit_params.get('orbit_radius', 0.7),
-                orbit_speed=orbit_params.get('orbit_speed', 0.15),
-                use_hysteresis=orbit_params.get('use_hysteresis', True),
-            )
-        elif cargo_configs:
-            controller = PriorityManager(cargo_configs)   # Phase 2
-        else:
-            controller = LandingPadController()            # Phase 1
+        controller = build_policy_yield_controller(
+            ini_x,
+            target,
+            num_moving_drones,
+            cargo_configs=cargo_configs,
+            orbit_params=orbit_params,
+            negotiation_params=negotiation_params,
+            round_trip_params=round_trip_params,
+        )
     else:
         controller = None
 
@@ -195,7 +162,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         if verbose:
             print("Step %s have finished, running time is %s"%(i,end-end_last))
 
-        # Per-step hook (Phase 2: decrement time_to_expiry; Phase 1: no-op)
+        # Per-step hook (e.g. expiry countdown when priority metadata is present)
         if controller is not None:
             controller.step_update(agent_list, target_reached, num_moving_drones)
     

@@ -78,6 +78,9 @@ Core fields:
 
 ## Architecture
 
+- `policy_yield_factory.py`: **single wiring point** — builds the right
+  policy/yield controller from scenario flags (baseline, priority, orbit,
+  negotiation, round-trip)
 - `app2_standardized.py`: entrypoint (scenario config or interactive mode)
 - `test.py`: simulation loop and controller dispatch
 - `priority.py`: weighted medical-priority scoring
