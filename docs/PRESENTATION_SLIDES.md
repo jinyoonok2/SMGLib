@@ -135,6 +135,56 @@ hooks point at the GIFs already in `logs/Social-IMPC-DR/animations/`.
 
 ---
 
+## 7. Phase 6 — Round-Trip / Shuttle Operations
+
+**Slide content**
+- **Problem:** every phase so far is *one-way* — drones arrive, land, and disappear. Real medical fleets are **shuttles**: a drone repeatedly flies pad → home → pad to chain deliveries (multi-trip organ runs, restocking, equipment ferries).
+- **Goal:** keep all of Phases 2–4.1 (priority, orbits, negotiation, hysteresis) intact, but let each drone perform `n_trips` complete round trips between the central pad and its own **home pad**.
+- **Per-drone state machine** (`RoundTripController`, subclass of `NegotiationController`):
+  - `INBOUND` — flying to the central pad (eligible for the priority contest)
+  - `UNLOADING` — parked on the pad for `unload_steps` ticks (everyone else must orbit)
+  - `OUTBOUND` — flying back to its home pad (no contest needed, just go)
+  - `DONE` — all trips complete; parks at the home pad and acts as a static obstacle
+- **Two key changes vs. Phase 4.1:**
+  1. **Goal swapping per leg.** When a drone enters `OUTBOUND`, its target is rewritten to `home_pad`; on `INBOUND` it is rewritten back to the central pad. Same MPC, just a different goal each leg.
+  2. **Pad-busy guard.** While any drone is `UNLOADING`, no `INBOUND` drone is allowed to start its final approach — they all orbit. Prevents MPC infeasibility from two drones converging on the same point.
+- **Visualization upgrade:** each drone's home pad is drawn as a dashed colored ring (`H0`, `H1`, `H2`) so you can see, at a glance, which drone shuttles to where.
+
+**Visuals**
+- `phase6_round_trip.gif` — 3 drones, 2 trips each = 6 landings. Distinct home pads at `(3, 2)`, `(-3, 2)`, `(0, -3)`.
+
+**Speaker notes**
+- Frame the contribution as **temporal extension**: Phases 1-4 solve *who lands now*; Phase 6 solves *what happens after they take off again*.
+- Stress that the same priority + orbit + negotiation + hysteresis stack runs every leg — we are *not* re-tuning the policy. The shuttle behavior emerges from one new layer (the FSM) on top of the existing controller hierarchy.
+- Walk through the FSM transitions on a single drone (`INBOUND → UNLOADING → OUTBOUND → INBOUND → ...`). Note that re-entering `INBOUND` puts the drone back into the priority contest from scratch — a returning drone has no special claim on the pad over a fresh one.
+- Highlight the architectural payoff: zero changes to the MPC, the priority manager, the orbit controller, or the negotiation rules. The new file (`round_trip_controller.py`, ~210 lines) is **purely additive**.
+- Result on the demo scenario: 100 % success, 6/6 successful landings, fastest drone done in 226 steps, slowest in 324, average 272.
+
+---
+
+## 8. Phase 6 — Visualization & Engineering Polish
+
+**Slide content**
+- **Per-drone home pads.** Each drone gets a `home_pad` attribute (defaults to its start position, overridable by the scenario JSON's `return_point` field). Rendered as a translucent disk + dashed colored ring + `H<i>` label so the audience can see the shuttle endpoints.
+- **Teleport bug, diagnosed and fixed.**
+  - *Old behavior:* `DONE` drones were teleported to `(100, 100)` off-screen so they wouldn't be considered in subsequent priority contests. Visually: drones vanished, and there was a one-frame snap when a drone left or re-entered an orbit.
+  - *Fix:* drones now **park at their home pad** instead of teleporting. They remain visible, and they continue to act as static MBVC obstacles for any drone still flying.
+- **Scenario design.** Drones are spread to distinct corners of the airspace so the round-trip motion is **visually unambiguous**: you can see drones converge on the pad, peel off, return to their own home pad, then come back.
+- **Remaining "teleport" — known and benign.** When a drone transitions from MPC-driven flight into orbit (or back), the orbit controller writes a fresh position rather than easing in, producing a single-frame snap of one orbit-radius. Cosmetic only — no safety or scheduling impact. Marked as a future polish item.
+
+**Visuals**
+- Same `phase6_round_trip.gif`, but zoom in on:
+  - The dashed `H0/H1/H2` rings (visible from frame 0).
+  - A drone reaching `DONE` and remaining parked on its home pad while the others continue.
+
+**Speaker notes**
+- This slide is the engineering counterpart to slide 7's algorithmic story: the FSM works, but a research demo must also *look* correct. Two changes — `home_pad` attribute + park-instead-of-teleport — close the loop between policy and visualization.
+- The new dashed-ring rendering is implemented in pure matplotlib (`Circle` patches + `ax.text` labels) — no extra dependency, drawn once before `FuncAnimation` starts so it stays static behind the moving drones.
+- Be honest about the remaining single-frame snap: we know exactly what causes it (orbit-entry warm start) and we have a fix in mind, but it doesn't affect any of the metrics we report.
+- Transition: with shuttle support in place, the system can now host **long-horizon scheduling** experiments — e.g., comparing hand-coded priority vs. an LLM that plans multi-trip schedules with knowledge of future deliveries. That's the bridge to the Phase 5 LLM ablation.
+
+---
+
 ## Appendix — Architecture diagram (suggested slide visual)
 
 ```
@@ -146,7 +196,8 @@ LandingPadController              ← Phase 1: closest-first
                     │
                     └── NegotiationController  ← Phase 4: expiry + ETA rules
                             │
-                            └── (LLMController, Phase 5 — planned)
+                            ├── (LLMController, Phase 5 — planned)
+                            └── RoundTripController     ← Phase 6: shuttle / round-trips
 ```
 
 Each subclass only overrides what it changes. The same simulation loop in

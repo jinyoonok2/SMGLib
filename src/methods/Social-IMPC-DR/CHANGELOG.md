@@ -5,6 +5,25 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Track Migration] — Two-Track Framing (In Progress)
+
+### Added
+- **Two-track project framing** in docs:
+  - `track-policy-yield` (legacy Phase 1/2/3/4/4.1/6 family)
+  - `track-trajectory-planner` (legacy Phase 7 family)
+- **Migration checklist**: `TRACK_MIGRATION.md` to guide non-breaking transition
+  from phase-oriented naming to track-oriented naming.
+- **Upstream workflow runbook**: `UPSTREAM_MILESTONES.md` with reproducible
+  milestone commands and expected animation artifacts.
+- **LLM branch bootstrap**: `LLM_BRANCH_BOOTSTRAP.md` to separate future LLM
+  work across the two track branches.
+
+### Changed
+- Documentation now prioritizes track terminology while keeping legacy phase
+  config names as temporary compatibility aliases.
+
+---
+
 ## [Phase 6] — Round-Trip Scenarios
 
 ### Added

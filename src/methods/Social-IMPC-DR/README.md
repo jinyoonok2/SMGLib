@@ -9,6 +9,27 @@ first-served policies.
 
 ---
 
+## Track-First Framing (Migration In Progress)
+
+This project now uses two long-lived research tracks:
+
+- **Track 1 — Policy/Yield**: single-winner pad access, with priority,
+  orbit holding, negotiation rules, and round-trip lifecycle.
+- **Track 2 — Trajectory Planner**: simultaneous inbound flight with
+  speed-scheduled arrivals and planner-based spacing.
+
+Legacy phase configs and labels are still supported temporarily for backward
+compatibility during migration. New work should be described in track terms.
+
+| Legacy label | Track mapping |
+|---|---|
+| Phase 1/2/3/4/4.1/6 | Track 1 (policy/yield family) |
+| Phase 7 | Track 2 (trajectory planner family) |
+| Phase 5 LLM | Track 1 LLM extension (planned) |
+| Phase 7 LLM | Track 2 LLM extension (planned) |
+
+---
+
 ## Quick Start
 
 ```bash
@@ -16,29 +37,23 @@ cd src/methods/Social-IMPC-DR
 conda activate smglib
 ```
 
-**Run Phase 1** (2 drones, closest-first):
+**Run Track 1 baseline** (closest-first policy/yield):
 ```bash
 python app2_standardized.py landing_pad configs/phase1_landing_pad.json
 ```
 
-**Run Phase 2** (3 drones, priority-based):
+**Run Track 1 priority/orbit/negotiation examples**:
 ```bash
 python app2_standardized.py landing_pad configs/phase2_landing_pad.json
-```
-
-**Run Phase 3** (3 drones, orbit holding):
-```bash
 python app2_standardized.py landing_pad configs/phase3_orbit.json
+python app2_standardized.py landing_pad configs/phase4_negotiation.json
+python app2_standardized.py landing_pad configs/phase6_round_trip.json
 ```
 
-**Run Phase 4 — Expiry Guard test** (rule 1: expiry override):
+**Run Track 2 planner examples**:
 ```bash
-python app2_standardized.py landing_pad configs/phase4_expiry_guard_test.json
-```
-
-**Run Phase 4 — ETA Switch test** (rule 2: proximity tie-break):
-```bash
-python app2_standardized.py landing_pad configs/phase4_eta_switch_test.json
+python app2_standardized.py landing_pad configs/phase7_planner_oneway.json
+python app2_standardized.py landing_pad configs/phase7_planner_round_trip.json
 ```
 
 **Interactive mode** (manual parameter entry):
@@ -56,7 +71,8 @@ Animations are saved to `logs/Social-IMPC-DR/animations/`.
 configs/
   phase1_landing_pad.json ──┐
   phase2_landing_pad.json ──┤    Scenario configs: drone positions,
-  priority_config.json ─────┤    simulation params, cargo assignments,
+  phase7_planner_*.json ────┤    simulation params, cargo assignments,
+  priority_config.json ─────┤
                             │    and priority scoring parameters.
                             ▼
 app2_standardized.py        ← ENTRY POINT
@@ -73,6 +89,8 @@ app2_standardized.py        ← ENTRY POINT
   │                            ├── Creates policy ────► LandingPadController
   │                            │      │                  or PriorityManager
   │                            │      │                  or OrbitController
+  │                            │      │                  or NegotiationController
+  │                            │      └── Track 2 ────► TrajectoryPlannerController
   │                            │      └── Uses ───────► priority.py
   │                            │                         Scoring math.
   │                            │
@@ -377,18 +395,20 @@ defines *how* the scoring system evaluates drones.
 
 ---
 
-## Policy Class Hierarchy
+## Controller Families (Track View)
 
 ```
-LandingPadController              ← Phase 1: closest drone first
-    │
-    └── PriorityManager           ← Phase 2: highest priority score first
-            │
-            └── OrbitController   ← Phase 3: yielding drones hold circular orbits
-                    │
-                    └── NegotiationController  ← Phase 4: ETA + expiry guard override
-                                │
-                                └── (Phase 5+)  ← LLM-based negotiation
+Track 1 (policy/yield):
+LandingPadController
+    └── PriorityManager
+            └── OrbitController
+                    └── NegotiationController
+                            └── RoundTripController
+                                    └── Track 1 LLM extension (planned)
+
+Track 2 (planner):
+TrajectoryPlannerController (inherits RoundTripController lifecycle)
+    └── Track 2 LLM extension (planned)
 ```
 
 Each subclass only overrides the methods it changes. `test.py` calls the same
