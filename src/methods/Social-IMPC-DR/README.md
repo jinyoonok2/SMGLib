@@ -203,6 +203,24 @@ and tags the output GIF as `planner` when planner mode is active.
 | `track_trajectory_oneway.json`       | 3 drones, simultaneous flight, single delivery     |
 | `track_trajectory_round_trip.json`   | 3 drones, 2 trips each, full Source → Pad → Source loop |
 
+Each GIF below is the output of running the matching config from
+section 4.2. Paths are relative to this README; on GitHub they render
+inline.
+
+**`track_trajectory_oneway`** — 3 drones cruise simultaneously; the
+planner caps each drone's `Vmax` so arrivals are sequenced by priority
+with `min_separation` spacing. Each drone returns to its start once
+unloaded (no home-pad markers because `n_trips == 1`).
+
+![track_trajectory_oneway](../../../logs/Social-IMPC-DR/animations/track_trajectory_oneway.gif)
+
+**`track_trajectory_round_trip`** — same planner but `n_trips = 2`
+per drone. Drones replan whenever the inbound set changes
+(`INBOUND → UNLOADING`, `UNLOADING → OUTBOUND`, `OUTBOUND → INBOUND`).
+Per-drone home pads (dashed circles) mark each shuttle's return point.
+
+![track_trajectory_round_trip](../../../logs/Social-IMPC-DR/animations/track_trajectory_round_trip.gif)
+
 ### 4.2 Commands
 
 ```bash
