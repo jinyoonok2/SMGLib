@@ -397,9 +397,13 @@ def main():
                 'use_hysteresis': scenario_config.get('use_hysteresis', True),
             }
 
-        # Round-trip params - Phase 6, supersedes negotiation_params when present
+        # Round-trip params - Phase 6, supersedes negotiation_params when present.
+        # Phase 7 planner reuses this param dict but is explicitly gated by
+        # `use_trajectory_planner` so the two tracks stay separated.
         round_trip_params = None
-        if scenario_config.get('round_trip', False) and cargo_configs is not None:
+        use_round_trip = scenario_config.get('round_trip', False)
+        use_planner = scenario_config.get('use_trajectory_planner', False)
+        if (use_round_trip or use_planner) and cargo_configs is not None:
             # Per-drone return points: explicit `return_point` field if
             # present, else fall back to the drone's start position.
             return_points = [
@@ -416,6 +420,11 @@ def main():
                 'nominal_speed':  scenario_config.get('nominal_speed', 0.1),
                 'eta_threshold': scenario_config.get('eta_threshold', 0.15),
                 'use_hysteresis': scenario_config.get('use_hysteresis', True),
+                'round_trip':     use_round_trip,
+                # Phase 7 planner-only knobs (ignored by RoundTripController).
+                'use_trajectory_planner': use_planner,
+                'max_speed':       scenario_config.get('max_speed',      1.0),
+                'min_separation':  scenario_config.get('min_separation', 1.0),
             }
 
         print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}, orbit={scenario_config.get('use_orbit', False)}, negotiation={scenario_config.get('use_negotiation', False)}")
@@ -539,7 +548,9 @@ def main():
     if result:
         print("\nSimulation completed successfully!")
         # Tag the filename with the active controller so phases don't overwrite each other
-        if round_trip_params is not None:
+        if round_trip_params is not None and round_trip_params.get('use_trajectory_planner'):
+            controller_tag = 'planner'
+        elif round_trip_params is not None and round_trip_params.get('round_trip'):
             controller_tag = 'round_trip'
         elif negotiation_params is not None:
             controller_tag = 'negotiation'

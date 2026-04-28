@@ -12,6 +12,7 @@ from priority_manager import PriorityManager
 from orbit_controller import OrbitController
 from negotiation_controller import NegotiationController
 from round_trip_controller import RoundTripController
+from trajectory_planner_controller import TrajectoryPlannerController
 
 def data_capture(a, b, c):
     data = {
@@ -86,7 +87,33 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
     # Pick the appropriate controller for landing pad scenarios
     if env_type == 'landing_pad':
-        if cargo_configs and round_trip_params:
+        planner_enabled = bool(
+            round_trip_params and round_trip_params.get('use_trajectory_planner', False)
+        )
+        round_trip_enabled = bool(
+            round_trip_params and round_trip_params.get('round_trip', False)
+        )
+
+        if cargo_configs and planner_enabled:
+            controller = TrajectoryPlannerController(   # Phase 7
+                cargo_configs,
+                return_points=round_trip_params.get(
+                    'return_points',
+                    [ini_x[i] for i in range(num_moving_drones)],
+                ),
+                n_trips=round_trip_params.get('n_trips', 1),
+                unload_steps=round_trip_params.get('unload_steps', 5),
+                max_speed=round_trip_params.get('max_speed', 1.0),
+                min_separation=round_trip_params.get('min_separation', 1.0),
+                safe_distance=round_trip_params.get('safe_distance', 1.2),
+                nominal_speed=round_trip_params.get('nominal_speed', 0.1),
+                orbit_radius=round_trip_params.get('orbit_radius', 0.7),
+                orbit_speed=round_trip_params.get('orbit_speed', 0.15),
+                eta_threshold=round_trip_params.get('eta_threshold', 0.15),
+                use_hysteresis=round_trip_params.get('use_hysteresis', True),
+            )
+            controller.bind(target)
+        elif cargo_configs and round_trip_enabled:
             controller = RoundTripController(      # Phase 6
                 cargo_configs,
                 return_points=round_trip_params.get(
