@@ -220,6 +220,57 @@ test.PLAN(...)
 | `track_policy_negotiation_eta_switch.json`        | Negotiation stack tuned to stress the ETA-switch rule                         |
 | `track_policy_round_trip.json`                    | Full negotiation stack + `round_trip` lifecycle                               |
 
+Each GIF below is the output of running the matching config from
+section 4.2. Paths are relative to this README; on GitHub they render
+inline.
+
+**`track_policy_baseline_closest`** — distance-only `closest_first`
+selector; non-winners freeze in place.
+
+![track_policy_baseline_closest](../../../logs/Social-IMPC-DR/animations/track_policy_baseline_closest.gif)
+
+**`track_policy_priority`** — `priority` selector with hysteresis: the
+chosen winner is locked until they land, so the holding drones stay
+frozen instead of chattering between rounds.
+
+![track_policy_priority](../../../logs/Social-IMPC-DR/animations/track_policy_priority.gif)
+
+**`track_policy_orbit_hold`** — same priority selection, but yielders
+fly a circular holding pattern (`orbit` yielder) instead of freezing.
+
+![track_policy_orbit_hold](../../../logs/Social-IMPC-DR/animations/track_policy_orbit_hold.gif)
+
+**`track_policy_negotiation`** — full negotiation stack
+(`expiry_guard` + `eta_switch`) on top of priority/orbit/hysteresis.
+Negotiators can override the priority winner when expiry or ETA gaps
+trigger.
+
+![track_policy_negotiation](../../../logs/Social-IMPC-DR/animations/track_policy_negotiation.gif)
+
+**`track_policy_negotiation_no_hysteresis`** — same scenario with
+hysteresis disabled, so the active winner can flip mid-handoff.
+Useful as a "before" demo against the hysteresis-enabled variant.
+
+![track_policy_negotiation_no_hysteresis](../../../logs/Social-IMPC-DR/animations/track_policy_negotiation_no_hysteresis.gif)
+
+**`track_policy_negotiation_expiry_guard`** — negotiation stack tuned
+so the `expiry_guard` rule fires (a drone's `time_to_expiry` drops
+below its ETA) and forces an emergency handoff.
+
+![track_policy_negotiation_expiry_guard](../../../logs/Social-IMPC-DR/animations/track_policy_negotiation_expiry_guard.gif)
+
+**`track_policy_negotiation_eta_switch`** — negotiation stack tuned so
+the `eta_switch` rule fires when two priority scores are nearly tied
+and the closer drone wins via ETA.
+
+![track_policy_negotiation_eta_switch](../../../logs/Social-IMPC-DR/animations/track_policy_negotiation_eta_switch.gif)
+
+**`track_policy_round_trip`** — full negotiation stack with the
+`round_trip` lifecycle: drones make `n_trips` deliveries each,
+parking on per-drone home pads (dashed circles) between trips.
+
+![track_policy_round_trip](../../../logs/Social-IMPC-DR/animations/track_policy_round_trip.gif)
+
 ### 4.2 Commands
 
 ```bash
