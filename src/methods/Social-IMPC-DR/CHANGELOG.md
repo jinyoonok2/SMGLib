@@ -12,8 +12,8 @@ For project overview, architecture, results, and usage, see [README.md](README.m
   simultaneous inbound flight; ranks drones by priority and assigns
   per-drone `Vmax` from `max_speed`, `min_separation`, and `unload_steps`
   with replanning whenever the inbound set changes.
-- **`configs/phase7_planner_oneway.json`** and
-  **`configs/phase7_planner_round_trip.json`** scenarios.
+- **`configs/track_trajectory_oneway.json`** and
+  **`configs/track_trajectory_round_trip.json`** scenarios.
 - Wiring in `test.py` (`use_trajectory_planner` selects
   `TrajectoryPlannerController`) and `app2_standardized.py` (parses
   planner-specific fields and tags the output GIF as `planner`).
@@ -30,7 +30,7 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 - `test_phase2.py` — Phase-era standalone test script.
 
 ### Migration
-- Use `phase7_planner_*.json` on this branch for all planner runs.
+- Use `track_trajectory_*.json` on this branch for all planner runs.
 - For yield/orbit/negotiation experiments, switch to the
   `research/track-policy-yield` branch and use `track_policy_*.json`.
 

@@ -45,7 +45,7 @@ pip install -r requirements.txt
 Run the planner one-way scenario to confirm the install:
 
 ```bash
-python app2_standardized.py landing_pad configs/phase7_planner_oneway.json
+python app2_standardized.py landing_pad configs/track_trajectory_oneway.json
 ```
 
 A GIF is written to `logs/Social-IMPC-DR/animations/`.
@@ -137,8 +137,8 @@ src/methods/Social-IMPC-DR/
 ├── app2_standardized.py               # entry point: scenario JSON or interactive
 ├── test.py                            # simulation loop, controller selection
 ├── configs/
-│   ├── phase7_planner_oneway.json     # one-way planner scenario
-│   ├── phase7_planner_round_trip.json # round-trip planner scenario
+│   ├── track_trajectory_oneway.json     # one-way planner scenario
+│   ├── track_trajectory_round_trip.json # round-trip planner scenario
 │   └── priority_config.json           # priority weights, cargo/acuity scores
 └── (MPC core: run.py, avoid.py, uav.py, SET.py, others.py, plot.py, ...)
 ```
@@ -200,8 +200,8 @@ and tags the output GIF as `planner` when planner mode is active.
 
 | Config file                          | What it exercises                                  |
 |--------------------------------------|----------------------------------------------------|
-| `phase7_planner_oneway.json`         | 3 drones, simultaneous flight, single delivery     |
-| `phase7_planner_round_trip.json`     | 3 drones, 2 trips each, full Source → Pad → Source loop |
+| `track_trajectory_oneway.json`       | 3 drones, simultaneous flight, single delivery     |
+| `track_trajectory_round_trip.json`   | 3 drones, 2 trips each, full Source → Pad → Source loop |
 
 ### 4.2 Commands
 
@@ -210,10 +210,10 @@ cd src/methods/Social-IMPC-DR
 conda activate smglib
 
 # One-way planner scenario
-python app2_standardized.py landing_pad configs/phase7_planner_oneway.json
+python app2_standardized.py landing_pad configs/track_trajectory_oneway.json
 
 # Round-trip planner scenario
-python app2_standardized.py landing_pad configs/phase7_planner_round_trip.json
+python app2_standardized.py landing_pad configs/track_trajectory_round_trip.json
 ```
 
 Outputs (per run):
@@ -232,11 +232,11 @@ Verbose console output includes a periodic schedule dump:
 
 ## 5. Scenario configuration
 
-Example (`configs/phase7_planner_oneway.json`):
+Example (`configs/track_trajectory_oneway.json`):
 
 ```json
 {
-    "test_name": "phase7_planner_oneway",
+    "test_name": "track_trajectory_oneway",
     "env_type": "landing_pad",
     "verbose": true,
     "num_moving_drones": 3,

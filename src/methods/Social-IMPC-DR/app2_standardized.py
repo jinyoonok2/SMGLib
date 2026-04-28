@@ -506,7 +506,7 @@ def main():
         cargo_configs = None
         orbit_params = None
         if env_type == 'landing_pad':
-            default_cfg_path = Path(__file__).resolve().parent / 'configs' / 'phase7_planner_oneway.json'
+            default_cfg_path = Path(__file__).resolve().parent / 'configs' / 'track_trajectory_oneway.json'
             with open(default_cfg_path, 'r') as f:
                 default_cfg = json.load(f)
             default_cargos = [

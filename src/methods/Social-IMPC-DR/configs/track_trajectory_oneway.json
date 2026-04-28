@@ -1,5 +1,5 @@
 {
-    "test_name": "phase7_planner_oneway",
+    "test_name": "track_trajectory_oneway",
     "env_type": "landing_pad",
     "verbose": true,
     "num_moving_drones": 3,
