@@ -10,8 +10,6 @@
     "k_value": 10,
     "max_steps": 1000,
     "use_priority": true,
-    "use_orbit": true,
-    "use_negotiation": true,
     "use_trajectory_planner": true,
     "n_trips": 2,
     "unload_steps": 5,

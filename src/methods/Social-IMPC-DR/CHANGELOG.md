@@ -5,6 +5,76 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Track 2 cleanup, part 2] — Inline FSM into the planner; one controller for Track 2
+
+### Removed
+- `round_trip_controller.py` — the round-trip FSM, target swapping
+  helpers, TTE countdown, and home-pad rendering hint were inlined into
+  `trajectory_planner_controller.py`. Track 2 no longer carries a
+  separate controller class for the lifecycle layer; the planner is
+  the only Track 2 controller.
+
+### Changed
+- `TrajectoryPlannerController` now extends `LandingPadController`
+  directly. It owns:
+  - the FSM (`INBOUND -> UNLOADING -> OUTBOUND -> DONE`),
+  - `_state` / `_unload_remaining` / `_trips_done` bookkeeping,
+  - `_return_points` and the `n_trips >= 2` home-pad gating,
+  - `bind(target)`, `_park`, `_switch_target`,
+  - the TTE countdown (used by `priority_score` inside `_replan`),
+  - the speed-scaling planner itself.
+- `test.py` no longer imports `RoundTripController`. The
+  `landing_pad` dispatch path is single-branch: planner or `ValueError`.
+- `app2_standardized.py` no longer reads the `round_trip` flag from
+  scenario JSON. The only flag that matters is `use_trajectory_planner`,
+  with `n_trips: 1` for one-way and `n_trips: >= 2` for shuttle.
+
+### Verified
+- `track_trajectory_oneway.gif` is byte-identical to the pre-inline run
+  (118 steps, 83.3 avg completion, 100% success).
+- `track_trajectory_round_trip.gif` is byte-identical to the pre-inline
+  run (232 steps, 202.7 avg completion, 100% success).
+
+---
+
+## [Track 2 cleanup, part 1] — Drop yield/orbit/negotiation chain
+
+### Removed
+- `priority_manager.py`, `orbit_controller.py`, `negotiation_controller.py`,
+  `llm_controller.py` — these were dragged in only as transitive base
+  classes for the `RoundTripController` constructor chain. Their selection
+  logic (closest-first/priority/orbit/expiry-guard/eta-switch) is never
+  exercised by `TrajectoryPlannerController` and belongs to Track 1.
+
+### Changed
+- `RoundTripController` extends `LandingPadController` directly
+  (was `NegotiationController`). Its `__init__` no longer takes
+  `orbit_radius`, `orbit_speed`, `safe_distance`, `nominal_speed`,
+  `eta_threshold`, or `use_hysteresis`. The `time_to_expiry` countdown
+  that used to come from `PriorityManager.step_update` is now inlined.
+- `TrajectoryPlannerController.__init__` drops the orbit/eta/hysteresis
+  kwargs that only existed to satisfy the deleted constructor chain.
+- `test.py` no longer imports `PriorityManager` / `OrbitController` /
+  `NegotiationController`. The `landing_pad` dispatch routes only to
+  the planner or the round-trip baseline; anything else raises
+  `ValueError` with a pointer to `research/track-policy-yield`.
+- `app2_standardized.py` no longer builds `orbit_params` /
+  `negotiation_params`. Scenario JSON's `use_orbit` / `use_negotiation`
+  flags are now ignored (and have been dropped from the shipped
+  `track_trajectory_*.json` configs).
+
+### Behaviour delta
+- The pad-busy safety net used to inherit `freeze_yielding` from
+  `OrbitController`, which moved near-pad inbound drones along a
+  circular orbit even though Track 2 never wanted holding patterns.
+  Without that vestigial chain the safety net now uses
+  `LandingPadController.freeze_yielding` (true zero-velocity freeze),
+  which matches the README's documented intent. The one-way GIF
+  changes slightly as a result (avg completion 84.0 -> 83.3 steps,
+  same success rate); the round-trip GIF is byte-identical.
+
+---
+
 ## [Track 2] — Trajectory planner only; legacy phase configs removed
 
 ### Added

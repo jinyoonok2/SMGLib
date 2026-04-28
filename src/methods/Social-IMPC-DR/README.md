@@ -105,19 +105,22 @@ still unloading. As a guard:
 This is a safety net, not a steady-state mechanism. With a feasible
 `max_speed` / `min_separation` / `unload_steps`, it should rarely fire.
 
-### 2.5 Lifecycle reuse
+### 2.5 Lifecycle FSM (built into the planner)
 
-Lifecycle bookkeeping is shared with Track 1’s round-trip controller:
+The planner owns the round-trip lifecycle directly:
 
 ```
 INBOUND  -> UNLOADING -> OUTBOUND -> (next inbound)  ... -> DONE
 ```
 
-- One-way scenarios: set `n_trips = 1`.
-- Round-trip scenarios: set `n_trips >= 2`.
+- One-way scenarios: set `n_trips = 1` (drones land, unload, fly home,
+  finish).
+- Round-trip scenarios: set `n_trips >= 2` (drones repeat the loop).
 
-`bind(target)`, target swapping, home-pad markers, and `all_finished`
-are inherited unchanged.
+The home-pad rendering hint is only stamped onto each `uav` when
+`n_trips >= 2`, so one-way scenarios don't draw a redundant home-pad
+circle on top of the start-square marker. Internal logic still uses
+`return_points` for the OUTBOUND leg in both cases.
 
 ---
 
@@ -127,12 +130,13 @@ are inherited unchanged.
 
 ```
 src/methods/Social-IMPC-DR/
-├── trajectory_planner_controller.py   # planner scheduling + per-drone Vmax
-├── round_trip_controller.py           # lifecycle FSM (reused base class)
-├── negotiation_controller.py          # base class for round_trip
-├── orbit_controller.py                # base class for negotiation
-├── priority_manager.py                # base class for orbit
-├── landing_pad.py                     # base class root
+├── trajectory_planner_controller.py   # the entire Track 2 controller:
+│                                      #   speed-scaling planner + Vmax push
+│                                      #   round-trip lifecycle FSM
+│                                      #   target swapping, TTE countdown,
+│                                      #   home-pad rendering hint
+├── landing_pad.py                     # MPC-side plumbing (cleanup helpers,
+│                                      #   freeze_yielding, reset_mpc, ...)
 ├── priority.py                        # weighted medical priority score
 ├── app2_standardized.py               # entry point: scenario JSON or interactive
 ├── test.py                            # simulation loop, controller selection
@@ -146,19 +150,42 @@ src/methods/Social-IMPC-DR/
 The MPC core (`run.py`, `avoid.py`, `uav.py`, `SET.py`, `dynamic.py`) is
 unchanged from upstream Social-IMPC-DR.
 
+Removed from this branch (vs. the historical Phase 1-6 chain):
+
+- `priority_manager.py`, `orbit_controller.py`, `negotiation_controller.py`,
+  `llm_controller.py` — single-winner / yield / orbit family. Lives on
+  `research/track-policy-yield`.
+- `round_trip_controller.py` — the FSM was inlined into
+  `trajectory_planner_controller.py` so Track 2 ships a single,
+  self-contained controller.
+
 ### 3.2 Controller class structure
 
-`TrajectoryPlannerController` extends `RoundTripController` so the FSM,
-target swapping, and `all_finished` logic are reused. Planner-specific
-behaviour overrides:
+```
+LandingPadController              (MPC plumbing: cleanup_landed defaults,
+                                   freeze_yielding, reset_mpc, get_released_drones,
+                                   update_idle_positions, step_update)
+  └─ TrajectoryPlannerController  (speed-scaling planner +
+                                   round-trip FSM (INBOUND→UNLOADING→OUTBOUND→DONE) +
+                                   target swapping, TTE countdown,
+                                   home-pad rendering hint)
+```
+
+`TrajectoryPlannerController` is a single, flat class on top of the
+landing-pad base. It overrides:
 
 - `select_active_drone(...)` — instead of picking one winner, returns
-  `{ allowed: None, yielding: <near-pad drones during pad-busy>, method: "planner" }`.
+  `{ allowed: None, yielding: <near-pad drones during pad-busy>, method: "planner" }`,
+  calling `_replan(...)` whenever the inbound set changes.
 - `_replan(...)` — internal: scores inbound drones, ranks them, and
   assigns `T_arrive` and `Vmax` per the speed-scaling formula. Pushes
   `Vmax` directly to each `uav` so MPC enforces it.
-- `cleanup_landed(...)`, `step_update(...)` — wrap the FSM transitions
-  and mark the schedule dirty so `_replan` runs next step.
+- `cleanup_landed(...)` — runs FSM transitions on each drone that just
+  reached its current target (`INBOUND→UNLOADING`, `OUTBOUND→INBOUND/DONE`).
+- `step_update(...)` — TTE countdown for cargo-aware priority scoring,
+  unload-timer countdown, dispatches OUTBOUND when unload finishes.
+- `all_finished(...)` — terminates only when every drone is `DONE`
+  (completed all `n_trips`).
 
 ### 3.3 Data flow (per simulation step)
 
@@ -182,15 +209,19 @@ test.PLAN(...)
 
 ### 3.4 Wiring in `test.py`
 
-`PLAN(...)` chooses the controller based on flags inside `round_trip_params`:
+Track 2 has exactly one dispatch path:
 
-- `use_trajectory_planner: true` → `TrajectoryPlannerController`
-- else `round_trip: true`        → `RoundTripController`
-- else negotiation/orbit/priority/baseline (Track 1 fallback path)
+- `env_type: 'landing_pad'` + `use_trajectory_planner: true` + `cargo_configs`
+  → `TrajectoryPlannerController(...)`
+- anything else under `landing_pad` → raises `ValueError`. Track 2 has
+  no yield/orbit/negotiation fallback (use `research/track-policy-yield`
+  for those scenarios).
 
-`app2_standardized.py` parses the scenario JSON, builds `round_trip_params`
-(including `max_speed`, `min_separation`, `n_trips`, `unload_steps`, …),
-and tags the output GIF as `planner` when planner mode is active.
+`app2_standardized.py` parses the scenario JSON, builds
+`round_trip_params` (the planner's full knob set: `max_speed`,
+`min_separation`, `n_trips`, `unload_steps`, `safe_distance`,
+`nominal_speed`, plus per-drone `return_points`), and tags the output
+GIF as `planner`.
 
 ---
 
@@ -260,8 +291,6 @@ Example (`configs/track_trajectory_oneway.json`):
     "num_moving_drones": 3,
     "max_steps": 600,
     "use_priority": true,
-    "use_orbit": true,
-    "use_negotiation": true,
     "use_trajectory_planner": true,
     "n_trips": 1,
     "unload_steps": 5,
@@ -289,13 +318,14 @@ Example (`configs/track_trajectory_oneway.json`):
 | `min_separation`           | Minimum spatial gap floor between consecutive arrivals   |
 | `unload_steps`             | Pad occupancy time after a landing                       |
 | `safe_distance`            | Pad-busy safety-net threshold                            |
-| `nominal_speed`            | Used by base classes (kept for compatibility)            |
+| `nominal_speed`            | Reserved for future planner extensions                   |
 | `n_trips`                  | `1` for one-way, `>=2` for round-trip                    |
 | `use_priority`             | Required so cargo metadata is loaded into the drones     |
 
-`use_orbit` and `use_negotiation` are accepted but the planner does not
-use orbits or ETA-switching — the base class plumbing only needs them
-to construct cleanly. They can stay `true` without affecting behaviour.
+The legacy `use_orbit` and `use_negotiation` flags from the Phase 1-6
+chain are no longer recognised on this branch — the orbit/negotiation
+controllers were removed. Use `research/track-policy-yield` for those
+scenarios.
 
 ### 5.2 Per-drone fields
 
