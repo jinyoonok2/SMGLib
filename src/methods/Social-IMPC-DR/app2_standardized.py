@@ -506,13 +506,12 @@ def main():
         cargo_configs = None
         orbit_params = None
         if env_type == 'landing_pad':
-            # Load defaults from phase2 scenario config
-            phase2_cfg_path = Path(__file__).resolve().parent / 'scenarios' / 'phase2_landing_pad.json'
-            with open(phase2_cfg_path, 'r') as f:
-                phase2_cfg = json.load(f)
+            default_cfg_path = Path(__file__).resolve().parent / 'configs' / 'phase7_planner_oneway.json'
+            with open(default_cfg_path, 'r') as f:
+                default_cfg = json.load(f)
             default_cargos = [
                 {'cargo_type': d['cargo_type'], 'time_to_expiry': d['time_to_expiry'], 'patient_acuity': d['patient_acuity']}
-                for d in phase2_cfg['drones']
+                for d in default_cfg['drones']
             ]
 
             print("\n--- Cargo Priority Configuration ---")

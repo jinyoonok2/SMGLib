@@ -139,8 +139,7 @@ src/methods/Social-IMPC-DR/
 ├── configs/
 │   ├── phase7_planner_oneway.json     # one-way planner scenario
 │   ├── phase7_planner_round_trip.json # round-trip planner scenario
-│   ├── priority_config.json           # priority weights, cargo/acuity scores
-│   └── (legacy phase1..6 configs kept for reference)
+│   └── priority_config.json           # priority weights, cargo/acuity scores
 └── (MPC core: run.py, avoid.py, uav.py, SET.py, others.py, plot.py, ...)
 ```
 

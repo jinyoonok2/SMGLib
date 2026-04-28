@@ -5,6 +5,37 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Track 2] — Trajectory planner only; legacy phase configs removed
+
+### Added
+- **`trajectory_planner_controller.py`**: speed-scaling planner for
+  simultaneous inbound flight; ranks drones by priority and assigns
+  per-drone `Vmax` from `max_speed`, `min_separation`, and `unload_steps`
+  with replanning whenever the inbound set changes.
+- **`configs/phase7_planner_oneway.json`** and
+  **`configs/phase7_planner_round_trip.json`** scenarios.
+- Wiring in `test.py` (`use_trajectory_planner` selects
+  `TrajectoryPlannerController`) and `app2_standardized.py` (parses
+  planner-specific fields and tags the output GIF as `planner`).
+
+### Removed (still available on `dev/jinyoon`)
+- `configs/phase1_landing_pad.json`, `configs/phase2_landing_pad.json`,
+  `configs/phase3_orbit.json`,
+  `configs/phase4_negotiation.json`,
+  `configs/phase4_negotiation_no_hysteresis.json`,
+  `configs/phase4_expiry_guard_test.json`,
+  `configs/phase4_eta_switch_test.json`,
+  `configs/phase6_round_trip.json` — these exercise the single-winner
+  yield family which lives on `research/track-policy-yield`, not Track 2.
+- `test_phase2.py` — Phase-era standalone test script.
+
+### Migration
+- Use `phase7_planner_*.json` on this branch for all planner runs.
+- For yield/orbit/negotiation experiments, switch to the
+  `research/track-policy-yield` branch and use `track_policy_*.json`.
+
+---
+
 ## [Phase 6] — Round-Trip Scenarios
 
 ### Added
