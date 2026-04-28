@@ -74,10 +74,13 @@ class RoundTripController(NegotiationController):
             self._state[j]            = INBOUND
             self._unload_remaining[j] = 0
             self._trips_done[j]       = 0
-        # Stamp each drone's home pad onto its uav for visualisation.
-        # Defaults to ini_p (already set by uav.__init__) but is overridden
-        # here when the scenario provides explicit return_points.
-        if agent_list is not None:
+        # Stamp each drone's home pad onto its uav for visualisation only
+        # when this is a true shuttle scenario (n_trips >= 2). One-way
+        # scenarios (n_trips == 1) functionally still use self._return_points
+        # for the OUTBOUND leg, but we leave agent.home_pad as None so the
+        # renderer doesn't draw a stray home-pad circle at the start
+        # position (which would just sit on top of the start-square marker).
+        if agent_list is not None and self._n_trips >= 2:
             for j in range(min(num_moving_drones, len(agent_list))):
                 if j < len(self._return_points):
                     agent_list[j].home_pad = self._return_points[j].copy()
@@ -128,7 +131,8 @@ class RoundTripController(NegotiationController):
             elif state == OUTBOUND:
                 # Just reached the return point - count the trip.
                 self._trips_done[j] += 1
-                home = agent_list[j].home_pad
+                home = (self._return_points[j]
+                        if j < len(self._return_points) else PAD_CENTER)
                 if self._trips_done[j] >= self._n_trips:
                     self._state[j] = DONE
                     # Park at home pad (NOT teleport off-screen) so the
@@ -148,7 +152,9 @@ class RoundTripController(NegotiationController):
 
             elif state == DONE:
                 # Keep parked at home pad each step.
-                self._park(agent_list[j], agent_list[j].home_pad, K)
+                home = (self._return_points[j]
+                        if j < len(self._return_points) else PAD_CENTER)
+                self._park(agent_list[j], home, K)
 
             # UNLOADING: handled by step_update countdown.
 

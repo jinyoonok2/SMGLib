@@ -29,10 +29,13 @@ class uav():
         self.patient_acuity = patient_acuity    # 'critical' | 'urgent' | 'routine'
         self.tte_history = [float(time_to_expiry)]   # TTE recorded each animation frame
 
-        # ── Phase 6: home pad (where this drone returns between trips) ──
-        # Default to the start position; RoundTripController will overwrite
-        # this from the scenario's `return_point` field if provided.
-        self.home_pad = ini_x.copy()
+        # ── Home pad (where this drone returns between trips) ──
+        # Stays None unless a lifecycle that needs it (e.g. round_trip /
+        # trajectory planner) stamps a real return point onto each drone
+        # in `_ensure_init`. The renderer skips drawing a home-pad marker
+        # when this is None, so one-way scenarios don't show a stray
+        # circle around `start`.
+        self.home_pad = None
 
         # current position
         self.p=ini_x.copy()
