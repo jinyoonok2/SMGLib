@@ -11,6 +11,7 @@ from landing_pad import LandingPadController
 from priority_manager import PriorityManager
 from orbit_controller import OrbitController
 from negotiation_controller import NegotiationController
+from llm_controller import LLMController
 
 def data_capture(a, b, c):
     data = {
@@ -85,7 +86,18 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
     # Pick the appropriate controller for landing pad scenarios
     if env_type == 'landing_pad':
-        if cargo_configs and negotiation_params:
+        if cargo_configs and negotiation_params and negotiation_params.get('use_llm', False):
+            controller = LLMController(    # Phase 5
+                cargo_configs,
+                orbit_radius=negotiation_params.get('orbit_radius', 0.7),
+                orbit_speed=negotiation_params.get('orbit_speed', 0.15),
+                safe_distance=negotiation_params.get('safe_distance', 1.2),
+                nominal_speed=negotiation_params.get('nominal_speed', 0.1),
+                eta_threshold=negotiation_params.get('eta_threshold', 0.15),
+                use_hysteresis=negotiation_params.get('use_hysteresis', True),
+                use_llm_hook=True,
+            )
+        elif cargo_configs and negotiation_params:
             controller = NegotiationController(    # Phase 4
                 cargo_configs,
                 orbit_radius=negotiation_params.get('orbit_radius', 0.7),
@@ -303,5 +315,8 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         writer.writerows(ttg_list)
     print("TTG CSV file saved.")
     
+    if isinstance(controller, LLMController):
+        controller.print_llm_summary()
+
     return obj, agent_list, completion_step, frame_log
     
