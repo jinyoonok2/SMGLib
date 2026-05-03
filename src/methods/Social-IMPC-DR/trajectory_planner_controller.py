@@ -69,6 +69,7 @@ class TrajectoryPlannerController(LandingPadController):
         min_separation=1.0,
         safe_distance=1.2,
         nominal_speed=0.1,
+        llm_advisor=None,
     ):
         super().__init__()
         # FSM bookkeeping
@@ -92,6 +93,7 @@ class TrajectoryPlannerController(LandingPadController):
         self._last_scores      = {}
         self._last_schedule    = {}    # j -> {"T_arrive", "Vmax", "rank"}
         self._planner_dirty    = True
+        self._llm_advisor      = llm_advisor
 
     # ------------------------------------------------------------------
     # External wiring
@@ -141,6 +143,15 @@ class TrajectoryPlannerController(LandingPadController):
                 patient_acuity=getattr(a, "patient_acuity", "routine"),
             )
             info.append({"idx": j, "dist": dist, "score": score})
+
+        if self._llm_advisor is not None:
+            adjusted_scores = self._llm_advisor.maybe_adjust_scores(
+                agent_list, info, step
+            )
+            if adjusted_scores is not None:
+                for d in info:
+                    d["score"] = adjusted_scores[d["idx"]]
+
         self._last_scores = {d["idx"]: d["score"] for d in info}
 
         # 2) Rank by score descending (higher priority first).
@@ -188,6 +199,11 @@ class TrajectoryPlannerController(LandingPadController):
                 for j, s in ranked
             )
             print(f"  [Planner] step {step} schedule -> {summary}")
+
+        if self._llm_advisor is not None:
+            self._llm_advisor.maybe_explain_schedule(
+                agent_list, info, schedule, step
+            )
 
     # ------------------------------------------------------------------
     # Override: planner mode -- everyone flies; safety-net freezes near-pad

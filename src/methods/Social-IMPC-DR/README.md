@@ -135,6 +135,9 @@ src/methods/Social-IMPC-DR/
 │                                      #   round-trip lifecycle FSM
 │                                      #   target swapping, TTE countdown,
 │                                      #   home-pad rendering hint
+├── llm_advisor.py                     # optional Track 2 LLM advisor:
+│                                      #   schedule explanation now,
+│                                      #   score adjustment path for future work
 ├── landing_pad.py                     # MPC-side plumbing (cleanup helpers,
 │                                      #   freeze_yielding, reset_mpc, ...)
 ├── priority.py                        # weighted medical priority score
@@ -143,6 +146,7 @@ src/methods/Social-IMPC-DR/
 ├── configs/
 │   ├── track_trajectory_oneway.json     # one-way planner scenario
 │   ├── track_trajectory_round_trip.json # round-trip planner scenario
+│   ├── track_trajectory_llm_explain.json # planner + explanation-only LLM advisor
 │   └── priority_config.json           # priority weights, cargo/acuity scores
 └── (MPC core: run.py, avoid.py, uav.py, SET.py, others.py, plot.py, ...)
 ```
@@ -169,6 +173,7 @@ LandingPadController              (MPC plumbing: cleanup_landed defaults,
                                    round-trip FSM (INBOUND→UNLOADING→OUTBOUND→DONE) +
                                    target swapping, TTE countdown,
                                    home-pad rendering hint)
+       └─ uses TrajectoryLLMAdvisor (optional; no controller inheritance)
 ```
 
 `TrajectoryPlannerController` is a single, flat class on top of the
@@ -187,6 +192,19 @@ landing-pad base. It overrides:
 - `all_finished(...)` — terminates only when every drone is `DONE`
   (completed all `n_trips`).
 
+`TrajectoryLLMAdvisor` in `llm_advisor.py` is deliberately a helper, not
+a controller subclass. It adapts the useful pieces from the older Phase 5
+LLM work (API call, prompt construction, response parsing, caching, and
+summary logging) without bringing back `PriorityManager`,
+`OrbitController`, `NegotiationController`, or `LLMController`.
+
+The first supported mode is `llm_mode: "explain"`: the planner computes
+the normal schedule, then the advisor asks the LLM to explain the medical
+reasoning and expiry risk. It does not change scores, arrival times,
+speed caps, or target switching. A `score_adjust` path exists in the
+helper for future behavior-changing experiments, but the shipped config
+starts with explanation-only mode.
+
 ### 3.3 Data flow (per simulation step)
 
 ```
@@ -196,8 +214,10 @@ test.PLAN(...)
         └─ filter inbound (state == INBOUND)
         └─ if dirty or inbound set changed: _replan
             ├─ priority_score per drone
+            ├─ optional LLM score adjustment (future mode)
             ├─ rank, assign T_arrive + Vmax
             ├─ push Vmax into agent_list[j].Vmax
+            ├─ optional LLM schedule explanation (explain mode)
             └─ OUTBOUND drones get full max_speed
         └─ pad-busy safety net (freeze near-pad drones)
   └─ controller.freeze_yielding            ─► safety-net only; freezes near-pad inbound
@@ -220,8 +240,10 @@ Track 2 has exactly one dispatch path:
 `app2_standardized.py` parses the scenario JSON, builds
 `round_trip_params` (the planner's full knob set: `max_speed`,
 `min_separation`, `n_trips`, `unload_steps`, `safe_distance`,
-`nominal_speed`, plus per-drone `return_points`), and tags the output
-GIF as `planner`.
+`nominal_speed`, plus per-drone `return_points`). When
+`use_llm_advisor: true`, it also passes `llm_mode`, `llm_cache_steps`,
+and optional `llm_model` into `test.py`. Output GIFs are still tagged
+from the scenario `test_name`.
 
 ---
 
@@ -233,6 +255,7 @@ GIF as `planner`.
 |--------------------------------------|----------------------------------------------------|
 | `track_trajectory_oneway.json`       | 3 drones, simultaneous flight, single delivery     |
 | `track_trajectory_round_trip.json`   | 3 drones, 2 trips each, full Source → Pad → Source loop |
+| `track_trajectory_llm_explain.json`  | One-way planner plus explanation-only LLM advisor  |
 
 Each GIF below is the output of running the matching config from
 section 4.2. Paths are relative to this README; on GitHub they render
@@ -263,6 +286,9 @@ python app2_standardized.py landing_pad configs/track_trajectory_oneway.json
 
 # Round-trip planner scenario
 python app2_standardized.py landing_pad configs/track_trajectory_round_trip.json
+
+# Planner + LLM explanation scenario
+python app2_standardized.py landing_pad configs/track_trajectory_llm_explain.json
 ```
 
 Outputs (per run):
@@ -321,6 +347,19 @@ Example (`configs/track_trajectory_oneway.json`):
 | `nominal_speed`            | Reserved for future planner extensions                   |
 | `n_trips`                  | `1` for one-way, `>=2` for round-trip                    |
 | `use_priority`             | Required so cargo metadata is loaded into the drones     |
+| `use_llm_advisor`          | Optional; enables `TrajectoryLLMAdvisor`                 |
+| `llm_mode`                 | `explain` for no behavior change; `score_adjust` is future behavior-changing mode |
+| `llm_cache_steps`          | Reuses an LLM response for equivalent schedules over N steps |
+| `llm_model`                | Optional Anthropic model override                        |
+
+LLM advisor setup:
+
+```bash
+set ANTHROPIC_API_KEY=your-key-here
+```
+
+If the key is missing, the advisor prints a warning and the planner
+continues unchanged.
 
 The legacy `use_orbit` and `use_negotiation` flags from the Phase 1-6
 chain are no longer recognised on this branch — the orbit/negotiation

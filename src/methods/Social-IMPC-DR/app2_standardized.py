@@ -399,9 +399,17 @@ def main():
                 'safe_distance':  scenario_config.get('safe_distance',  1.2),
                 'nominal_speed':  scenario_config.get('nominal_speed',  0.1),
             }
+            if scenario_config.get('use_llm_advisor', False):
+                round_trip_params['llm_advisor'] = {
+                    'enabled': True,
+                    'mode': scenario_config.get('llm_mode', 'explain'),
+                    'cache_steps': scenario_config.get('llm_cache_steps', 25),
+                    'model': scenario_config.get('llm_model'),
+                }
 
         print(f"[Config mode] env={env_type}, drones={num_moving_drones}, "
-              f"planner={use_planner}")
+              f"planner={use_planner}, "
+              f"llm_advisor={scenario_config.get('use_llm_advisor', False)}")
         for i, d in enumerate(drones):
             print(f"  Drone {i}: start={d['start']}, goal={d['goal']}")
 

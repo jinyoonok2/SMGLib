@@ -7,6 +7,7 @@ import pickle
 import copy
 import os
 import csv
+from llm_advisor import TrajectoryLLMAdvisor
 from trajectory_planner_controller import TrajectoryPlannerController
 
 def data_capture(a, b, c):
@@ -92,6 +93,15 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
                 "yield/orbit/negotiation controllers were removed from this "
                 "branch -- use `research/track-policy-yield` for those scenarios."
             )
+        llm_advisor = None
+        llm_params = round_trip_params.get('llm_advisor')
+        if llm_params and llm_params.get('enabled', False):
+            llm_advisor = TrajectoryLLMAdvisor(
+                mode=llm_params.get('mode', 'explain'),
+                model=llm_params.get('model'),
+                cache_steps=llm_params.get('cache_steps', 25),
+            )
+
         controller = TrajectoryPlannerController(
             cargo_configs,
             return_points=round_trip_params.get(
@@ -104,6 +114,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
             min_separation=round_trip_params.get('min_separation', 1.0),
             safe_distance=round_trip_params.get('safe_distance', 1.2),
             nominal_speed=round_trip_params.get('nominal_speed', 0.1),
+            llm_advisor=llm_advisor,
         )
         controller.bind(target)
     else:
@@ -304,6 +315,9 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         writer.writerow(["robot_id", "ttg", "reached_goal"])  # Added reached_goal column
         writer.writerows(ttg_list)
     print("TTG CSV file saved.")
+
+    if controller is not None and getattr(controller, "_llm_advisor", None) is not None:
+        controller._llm_advisor.print_summary()
     
     return obj, agent_list, completion_step, frame_log
     

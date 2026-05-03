@@ -5,6 +5,36 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Track 2 LLM advisor] — Modular explanation layer for the planner
+
+### Added
+- `llm_advisor.py` with `TrajectoryLLMAdvisor`, a helper adapted from
+  Shariq's Phase 5 LLM work without importing the old yield/orbit/
+  negotiation controller chain. It owns Anthropic API calls, prompt
+  construction, response parsing, cache handling, and summary logging.
+- `configs/track_trajectory_llm_explain.json`, a Track 2-named scenario
+  that enables the advisor in `llm_mode: "explain"`.
+
+### Changed
+- `TrajectoryPlannerController` accepts an optional `llm_advisor`.
+  In explanation mode, `_replan(...)` still computes the deterministic
+  schedule first, then asks the advisor to explain the computed order,
+  `T_arrive`, `Vmax`, and expiry risk. The advisor does not change
+  scores, trajectories, speed caps, targets, or FSM transitions in the
+  shipped config.
+- `app2_standardized.py` parses `use_llm_advisor`, `llm_mode`,
+  `llm_cache_steps`, and optional `llm_model` from scenario JSON.
+- `test.py` constructs the advisor only when requested and prints the
+  LLM advisor summary after the run.
+
+### Compatibility
+- This is not the old `LLMController(NegotiationController)` design.
+  Track 2 stays `LandingPadController -> TrajectoryPlannerController`,
+  with the LLM as a helper object. The old single-winner LLM negotiation
+  approach remains a Track 1 / historical Phase 5 idea.
+
+---
+
 ## [Track 2 cleanup, part 2] — Inline FSM into the planner; one controller for Track 2
 
 ### Removed
