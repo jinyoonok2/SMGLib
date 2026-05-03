@@ -94,6 +94,13 @@ class PolicyYieldController:
             return all(target_reached[:num_moving_drones])
         return bool(result)
 
+    def print_negotiator_summaries(self) -> None:
+        """Let optional negotiators print end-of-run diagnostics."""
+        for negotiator in self.negotiators:
+            summary = getattr(negotiator, "print_llm_summary", None)
+            if callable(summary):
+                summary()
+
     # ------------------------------------------------------------------
     # Per-step decision
     # ------------------------------------------------------------------

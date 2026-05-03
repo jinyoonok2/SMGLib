@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from .controller import PolicyYieldController
 from .lifecycles import Lifecycle, OneWay, RoundTrip
-from .negotiators import EtaSwitch, ExpiryGuard, Negotiator
+from .negotiators import EtaSwitch, ExpiryGuard, LLMNegotiator, Negotiator
 from .selectors import ClosestFirst, Priority, Selector
 from .yielders import Freeze, Orbit, Yielder
 
@@ -50,6 +50,7 @@ LIFECYCLES: Dict[str, type] = {
 NEGOTIATORS: Dict[str, type] = {
     "expiry_guard": ExpiryGuard,
     "eta_switch":   EtaSwitch,
+    "llm_negotiator": LLMNegotiator,
 }
 
 
@@ -100,6 +101,14 @@ def _make_negotiator(name: str, params: Dict[str, Any]) -> Negotiator:
         return EtaSwitch(
             nominal_speed=params.get("nominal_speed", 0.1),
             eta_threshold=params.get("eta_threshold", 0.15),
+        )
+    if name == "llm_negotiator":
+        return LLMNegotiator(
+            nominal_speed=params.get("nominal_speed", 0.1),
+            llm_model=params.get("llm_model", "claude-haiku-4-5-20251001"),
+            llm_cache_steps=params.get("llm_cache_steps", 10),
+            use_llm_hook=params.get("use_llm_hook", True),
+            use_llm_score=params.get("use_llm_score", False),
         )
     return NEGOTIATORS[name]()
 

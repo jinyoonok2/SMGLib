@@ -5,6 +5,31 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Track 1 LLM] — Add Shariq-style LLM negotiator plugin
+
+### Added
+- `LLMNegotiator` in `policy_yield/negotiators.py`, adapted from
+  Shariq's `LLMController` while preserving the original internal method
+  names (`negotiation_hook`, `_score_active`, `_build_prompt`,
+  `_build_scoring_prompt`, `_call_llm`, `_parse_response`,
+  `_parse_scores`, `print_llm_summary`).
+- `llm_negotiator` registry entry in `policy_yield/registry.py`.
+- `configs/track_policy_llm_negotiator.json`, a Track 1 scenario using
+  `priority` + `orbit` + `one_way` with the LLM negotiator.
+
+### Changed
+- `PolicyYieldController` now exposes `print_negotiator_summaries()` so
+  optional negotiators can print end-of-run diagnostics.
+- `test.py` calls the summary hook after writing TTG metrics.
+
+### Compatibility
+- This does not restore the old `LLMController(NegotiationController)`
+  inheritance chain. The LLM is a peer negotiator plugin: if the model
+  call fails or parsing fails, it returns `None` and the normal selector /
+  negotiator recipe continues.
+
+---
+
 ## [Track 1] — Flat plugin model for the policy/yield controller
 
 ### Added

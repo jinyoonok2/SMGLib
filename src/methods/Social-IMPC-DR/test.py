@@ -287,6 +287,9 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         writer.writerow(["robot_id", "ttg", "reached_goal"])  # Added reached_goal column
         writer.writerows(ttg_list)
     print("TTG CSV file saved.")
+
+    if controller is not None and hasattr(controller, "print_negotiator_summaries"):
+        controller.print_negotiator_summaries()
     
     return obj, agent_list, completion_step, frame_log
     

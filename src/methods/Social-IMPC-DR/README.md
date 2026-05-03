@@ -119,6 +119,11 @@ Weights, cargo categories, acuity scores, and clamp bounds live in
   can break a held hysteresis winner.
 - `eta_switch`: if the gap between the top two priority scores is below
   `eta_threshold`, the closer drone wins (tie-break by ETA).
+- `llm_negotiator`: adapted from Shariq's Phase 5 LLM work. It asks
+  Claude which candidate drone should land next using the original
+  `DRONE <index> because <reason>` response format. If the API key is
+  missing, the model call fails, or the response cannot be parsed, it
+  returns `None` and the normal policy recipe continues.
 
 ### 2.6 Round-trip lifecycle FSM
 
@@ -149,7 +154,7 @@ src/methods/Social-IMPC-DR/
 │   ├── selectors.py           # closest_first, priority
 │   ├── yielders.py            # freeze, orbit
 │   ├── lifecycles.py          # one_way, round_trip
-│   ├── negotiators.py         # expiry_guard, eta_switch
+│   ├── negotiators.py         # expiry_guard, eta_switch, llm_negotiator
 │   └── context.py             # per-step Context dataclass + PAD_CENTER
 ├── app2_standardized.py       # entry point: scenario JSON or interactive
 ├── test.py                    # simulation loop, calls into the controller
@@ -218,6 +223,7 @@ test.PLAN(...)
 | `track_policy_negotiation_no_hysteresis.json`     | Same as above with `use_hysteresis: false`                                    |
 | `track_policy_negotiation_expiry_guard.json`      | Negotiation stack tuned to stress the expiry-guard rule                       |
 | `track_policy_negotiation_eta_switch.json`        | Negotiation stack tuned to stress the ETA-switch rule                         |
+| `track_policy_llm_negotiator.json`                | `priority` + `orbit` + `one_way` + `[llm_negotiator]` + hysteresis            |
 | `track_policy_round_trip.json`                    | Full negotiation stack + `round_trip` lifecycle                               |
 
 Each GIF below is the output of running the matching config from
@@ -288,6 +294,9 @@ python app2_standardized.py landing_pad configs/track_policy_negotiation_expiry_
 python app2_standardized.py landing_pad configs/track_policy_negotiation_eta_switch.json
 python app2_standardized.py landing_pad configs/track_policy_negotiation_no_hysteresis.json
 
+# LLM negotiator adapted from Shariq's Phase 5 work
+python app2_standardized.py landing_pad configs/track_policy_llm_negotiator.json
+
 # Round-trip lifecycle
 python app2_standardized.py landing_pad configs/track_policy_round_trip.json
 ```
@@ -348,8 +357,20 @@ per role plus the negotiator list. Example
 | `safe_distance`   | Orbit yielder: extra clearance from the active drone                   |
 | `nominal_speed`   | Negotiators: speed used to compute ETA                                 |
 | `eta_threshold`   | `eta_switch`: score-gap threshold below which it fires                 |
+| `llm_model`       | `llm_negotiator`: Anthropic model ID (default `claude-haiku-4-5-20251001`) |
+| `llm_cache_steps` | `llm_negotiator`: reuse a decision while candidate set is unchanged    |
+| `use_llm_hook`    | `llm_negotiator`: ask LLM to choose the landing drone                  |
+| `use_llm_score`   | `llm_negotiator`: preserved scoring helper from Shariq, off by default |
 | `n_trips`         | `round_trip`: number of trips before `DONE`                            |
 | `unload_steps`    | `round_trip`: pad-occupancy steps per landing                          |
+
+LLM negotiator setup:
+
+```powershell
+$env:ANTHROPIC_API_KEY = "your-key-here"
+```
+
+Do not commit API keys. Keep them in your shell environment only.
 
 ### 5.2 Scenario-level fields
 
