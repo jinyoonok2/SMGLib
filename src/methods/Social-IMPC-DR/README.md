@@ -1,14 +1,19 @@
-# Social-IMPC-DR — Track 2 (Trajectory Planner)
+# Social-IMPC-DR — Combined Track Submission
 
-This branch implements **planner-based simultaneous inbound flight** for a
-shared medical landing pad. Instead of choosing a single winner and
-forcing the rest to yield (the Track 1 model), the planner computes a
-per-drone cruise speed cap so all drones fly at the same time and arrive
-at the pad in priority order with safe spacing.
+This branch submits both landing-pad coordination tracks as separate
+modules that share the same Social-IMPC-DR simulation core.
 
-The single-winner / yielding family (closest-first, priority, orbit,
-ETA/expiry negotiation) is **not** included here — it lives in
-`research/track-policy-yield`.
+- **Track 1: Yield Control** uses a single-winner controller. One drone is
+  allowed to approach the pad while the others yield by freezing or orbiting.
+  The selector, yielder, lifecycle, and negotiators are peer plugins under
+  `yield_control/`.
+- **Track 2: Trajectory Planner** keeps all inbound drones moving together.
+  The planner computes per-drone cruise speed caps so arrivals happen in
+  priority order with safe spacing.
+
+Users choose the track from the command line: `yield_control` for Track 1
+or `trajectory_planner <mode>` for Track 2. The landing-pad environment is
+still used internally by both tracks.
 
 ---
 
@@ -42,26 +47,46 @@ pip install -r requirements.txt
 
 ### 1.4 Quick verification
 
-Run the planner one-way scenario to confirm the install:
+Run one scenario from either track to confirm the install:
 
 ```bash
-python app2_standardized.py landing_pad configs/track_trajectory_oneway.json
+python app2_standardized.py trajectory_planner baseline configs/track_trajectory_oneway.json
+python app2_standardized.py yield_control configs/track_policy_baseline_closest.json
 ```
 
 A GIF is written to `logs/Social-IMPC-DR/animations/`.
 
 ---
 
-## 2. Method
+## 2. Methods
 
-### 2.1 Setting
+### 2.1 Shared setting
 
 A landing pad sits at a fixed location. Multiple drones converge on it
-to deliver cargo. Unlike Track 1, all drones fly **at the same time**;
-the planner shapes their speeds so arrivals happen sequentially with
-guaranteed spacing.
+to deliver cargo. Both tracks use the same MPC/environment code, cargo
+metadata, priority score, standardized configs, and animation renderer.
 
-### 2.2 Speed-scaling formula
+### 2.2 Track 1: Yield Control
+
+Track 1 makes a discrete per-step decision:
+
+```python
+{"allowed": int | None, "yielding": set[int], "method": str, "scores": dict[int, float]}
+```
+
+The `yield_control/` package composes one component per role:
+
+- `selector`: `closest_first`, `priority`
+- `yielder`: `freeze`, `orbit`
+- `lifecycle`: `one_way`, `round_trip`
+- `negotiator`: `expiry_guard`, `eta_switch`, `llm_negotiator`
+
+The `llm_negotiator` plugin adapts Shariq's Phase 5 LLM work into the new
+recipe format while preserving the original internal method names such as
+`negotiation_hook`, `_score_active`, `_build_prompt`, `_call_llm`, and
+`print_llm_summary`.
+
+### 2.3 Track 2: Speed-scaling trajectory planner
 
 Drones are ranked by priority score (highest first). For drone `k` with
 distance `d_k` to the pad, given the previous drone’s arrival time
@@ -82,7 +107,7 @@ unconstrained). Each subsequent drone’s arrival ratchets forward.
 `OUTBOUND` drones (returning home after a delivery) are restored to
 `max_speed` — they do not contend with the inbound queue.
 
-### 2.3 Replanning
+### 2.4 Replanning
 
 The planner re-runs whenever the inbound set changes:
 
@@ -93,7 +118,7 @@ The planner re-runs whenever the inbound set changes:
 
 This keeps the schedule consistent across the lifecycle.
 
-### 2.4 Pad-busy safety net
+### 2.5 Pad-busy safety net
 
 Even with a feasible schedule, MPC overshoot or local collision
 avoidance can drift an inbound drone toward the pad while another is
@@ -105,22 +130,22 @@ still unloading. As a guard:
 This is a safety net, not a steady-state mechanism. With a feasible
 `max_speed` / `min_separation` / `unload_steps`, it should rarely fire.
 
-### 2.5 Lifecycle FSM (built into the planner)
+### 2.6 Lifecycle FSM
 
-The planner owns the round-trip lifecycle directly:
+Both tracks support the same high-level round-trip lifecycle:
 
 ```
 INBOUND  -> UNLOADING -> OUTBOUND -> (next inbound)  ... -> DONE
 ```
 
-- One-way scenarios: set `n_trips = 1` (drones land, unload, fly home,
-  finish).
-- Round-trip scenarios: set `n_trips >= 2` (drones repeat the loop).
+- Policy/yield scenarios choose `"lifecycle": "round_trip"` inside the
+  `policy` recipe.
+- Planner scenarios set `n_trips = 1` for one delivery or `n_trips >= 2`
+  for shuttle/round-trip behavior.
 
-The home-pad rendering hint is only stamped onto each `uav` when
-`n_trips >= 2`, so one-way scenarios don't draw a redundant home-pad
-circle on top of the start-square marker. Internal logic still uses
-`return_points` for the OUTBOUND leg in both cases.
+The home-pad rendering hint is only stamped onto each `uav` in true
+shuttle scenarios, so one-way scenarios do not draw redundant home-pad
+circles around the start markers.
 
 ---
 
@@ -130,20 +155,29 @@ circle on top of the start-square marker. Internal logic still uses
 
 ```
 src/methods/Social-IMPC-DR/
-├── trajectory_planner_controller.py   # the entire Track 2 controller:
-│                                      #   speed-scaling planner + Vmax push
-│                                      #   round-trip lifecycle FSM
-│                                      #   target swapping, TTE countdown,
-│                                      #   home-pad rendering hint
-├── llm_advisor.py                     # optional Track 2 LLM advisor:
-│                                      #   schedule explanation now,
-│                                      #   score adjustment path for future work
+├── yield_control/                      # Track 1 plugin package:
+│   ├── controller.py                    #   PolicyYieldController orchestrator
+│   ├── registry.py                      #   recipe builder and plugin lookup
+│   ├── selectors.py                     #   closest_first, priority
+│   ├── yielders.py                      #   freeze, orbit
+│   ├── lifecycles.py                    #   one_way, round_trip
+│   ├── negotiators.py                   #   expiry_guard, eta_switch, llm_negotiator
+│   └── context.py                       #   per-step Context dataclass
+├── trajectory_planner/                 # Track 2 planner package:
+│   ├── baseline.py                     #   current working planner
+│   ├── llm_advisor.py                  #   optional explanation helper
+│   ├── llm_method.py                   #   placeholder for Shariq's method
+│   ├── lookahead.py                    #   placeholder for Leonardo's method
+│   └── registry.py                     #   baseline/llm/lookahead/compare_all
+├── trajectory_planner_controller.py    # compatibility import
+├── llm_advisor.py                      # compatibility import
 ├── landing_pad.py                     # MPC-side plumbing (cleanup helpers,
 │                                      #   freeze_yielding, reset_mpc, ...)
 ├── priority.py                        # weighted medical priority score
 ├── app2_standardized.py               # entry point: scenario JSON or interactive
-├── test.py                            # simulation loop, controller selection
+├── test.py                            # shared simulation loop, track dispatch
 ├── configs/
+│   ├── track_policy_*.json              # Track 1 policy/yield scenarios
 │   ├── track_trajectory_oneway.json     # one-way planner scenario
 │   ├── track_trajectory_round_trip.json # round-trip planner scenario
 │   ├── track_trajectory_llm_explain.json # planner + explanation-only LLM advisor
@@ -154,13 +188,14 @@ src/methods/Social-IMPC-DR/
 The MPC core (`run.py`, `avoid.py`, `uav.py`, `SET.py`, `dynamic.py`) is
 unchanged from upstream Social-IMPC-DR.
 
-Removed from this branch (vs. the historical Phase 1-6 chain):
+Historical Phase-era controller subclasses are not restored in the
+combined branch:
 
 - `priority_manager.py`, `orbit_controller.py`, `negotiation_controller.py`,
-  `llm_controller.py` — single-winner / yield / orbit family. Lives on
-  `research/track-policy-yield`.
+  `llm_controller.py` — replaced by the flat `yield_control/` plugin
+  package for Track 1.
 - `round_trip_controller.py` — the FSM was inlined into
-  `trajectory_planner_controller.py` so Track 2 ships a single,
+  `trajectory_planner/baseline.py` so Track 2 ships a single,
   self-contained controller.
 
 ### 3.2 Controller class structure
@@ -192,7 +227,7 @@ landing-pad base. It overrides:
 - `all_finished(...)` — terminates only when every drone is `DONE`
   (completed all `n_trips`).
 
-`TrajectoryLLMAdvisor` in `llm_advisor.py` is deliberately a helper, not
+`TrajectoryLLMAdvisor` in `trajectory_planner/llm_advisor.py` is deliberately a helper, not
 a controller subclass. It adapts the useful pieces from the older Phase 5
 LLM work (API call, prompt construction, response parsing, caching, and
 summary logging) without bringing back `PriorityManager`,
@@ -229,21 +264,18 @@ test.PLAN(...)
 
 ### 3.4 Wiring in `test.py`
 
-Track 2 has exactly one dispatch path:
+The final branch has two landing-pad dispatch paths:
 
-- `env_type: 'landing_pad'` + `use_trajectory_planner: true` + `cargo_configs`
+- command `trajectory_planner <mode>` + `use_trajectory_planner: true`
   → `TrajectoryPlannerController(...)`
-- anything else under `landing_pad` → raises `ValueError`. Track 2 has
-  no yield/orbit/negotiation fallback (use `research/track-policy-yield`
-  for those scenarios).
+- command `yield_control` + a `policy` block
+  → `build_policy_yield_controller(...)`
+- `landing_pad` remains the internal environment for both tracks.
 
-`app2_standardized.py` parses the scenario JSON, builds
-`round_trip_params` (the planner's full knob set: `max_speed`,
-`min_separation`, `n_trips`, `unload_steps`, `safe_distance`,
-`nominal_speed`, plus per-drone `return_points`). When
-`use_llm_advisor: true`, it also passes `llm_mode`, `llm_cache_steps`,
-and optional `llm_model` into `test.py`. Output GIFs are still tagged
-from the scenario `test_name`.
+`app2_standardized.py` parses the scenario JSON and builds either
+`policy_recipe` or `round_trip_params`. Output GIFs are tagged from the
+scenario `test_name`, so Track 1 and Track 2 outputs do not overwrite
+each other.
 
 ---
 
@@ -251,11 +283,20 @@ from the scenario `test_name`.
 
 ### 4.1 Available scenarios
 
-| Config file                          | What it exercises                                  |
-|--------------------------------------|----------------------------------------------------|
-| `track_trajectory_oneway.json`       | 3 drones, simultaneous flight, single delivery     |
-| `track_trajectory_round_trip.json`   | 3 drones, 2 trips each, full Source → Pad → Source loop |
-| `track_trajectory_llm_explain.json`  | One-way planner plus explanation-only LLM advisor  |
+| Config file                                       | Track | What it exercises                                  |
+|---------------------------------------------------|-------|----------------------------------------------------|
+| `track_policy_baseline_closest.json`              | 1     | `closest_first` + `freeze` + `one_way`             |
+| `track_policy_priority.json`                      | 1     | medical priority selector + hysteresis             |
+| `track_policy_orbit_hold.json`                    | 1     | orbit yielder                                      |
+| `track_policy_negotiation.json`                   | 1     | priority/ETA negotiation recipe                    |
+| `track_policy_negotiation_no_hysteresis.json`     | 1     | negotiation without held winner                    |
+| `track_policy_negotiation_expiry_guard.json`      | 1     | expiry override negotiator                         |
+| `track_policy_negotiation_eta_switch.json`        | 1     | ETA switch negotiator                              |
+| `track_policy_round_trip.json`                    | 1     | policy/yield round-trip lifecycle                  |
+| `track_policy_llm_negotiator.json`                | 1     | Shariq-style LLM negotiator plugin                 |
+| `track_trajectory_oneway.json`                    | 2     | simultaneous flight, single delivery               |
+| `track_trajectory_round_trip.json`                | 2     | 2 trips each, full Source -> Pad -> Source loop    |
+| `track_trajectory_llm_explain.json`               | 2     | planner plus explanation-only LLM advisor          |
 
 Each GIF below is the output of running the matching config from
 section 4.2. Paths are relative to this README; on GitHub they render
@@ -275,20 +316,35 @@ Per-drone home pads (dashed circles) mark each shuttle's return point.
 
 ![track_trajectory_round_trip](../../../logs/Social-IMPC-DR/animations/track_trajectory_round_trip.gif)
 
+Track 1 animations are also included under
+`logs/Social-IMPC-DR/animations/track_policy_*.gif`.
+
 ### 4.2 Commands
 
 ```bash
 cd src/methods/Social-IMPC-DR
 conda activate smglib
 
-# One-way planner scenario
-python app2_standardized.py landing_pad configs/track_trajectory_oneway.json
+# Baseline planner scenario (current Jinyoon method)
+python app2_standardized.py trajectory_planner baseline configs/track_trajectory_oneway.json
 
 # Round-trip planner scenario
-python app2_standardized.py landing_pad configs/track_trajectory_round_trip.json
+python app2_standardized.py trajectory_planner baseline configs/track_trajectory_round_trip.json
 
-# Planner + LLM explanation scenario
-python app2_standardized.py landing_pad configs/track_trajectory_llm_explain.json
+# Reserved Shariq LLM planner mode; currently uses baseline + advisor hook
+python app2_standardized.py trajectory_planner llm configs/track_trajectory_llm_explain.json
+
+# Reserved Leonardo look-ahead planner mode; raises NotImplementedError until added
+python app2_standardized.py trajectory_planner lookahead configs/track_trajectory_oneway.json
+
+# Reserved comparison mode; currently runs baseline until other planners land
+python app2_standardized.py trajectory_planner compare_all configs/track_trajectory_oneway.json
+
+# Yield-control baseline
+python app2_standardized.py yield_control configs/track_policy_baseline_closest.json
+
+# Yield-control + LLM negotiator
+python app2_standardized.py yield_control configs/track_policy_llm_negotiator.json
 ```
 
 Outputs (per run):
@@ -335,7 +391,34 @@ Example (`configs/track_trajectory_oneway.json`):
 }
 ```
 
-### 5.1 Planner-specific fields
+Track 1 configs contain a `policy` block. Track 2 configs contain
+`use_trajectory_planner: true`. A config should not set both.
+
+Track 1 policy example:
+
+```json
+"policy": {
+    "selector": "priority",
+    "yielder": "orbit",
+    "lifecycle": "one_way",
+    "negotiators": ["llm_negotiator"],
+    "use_hysteresis": true,
+    "llm_model": "claude-haiku-4-5-20251001"
+}
+```
+
+### 5.1 Policy-specific fields
+
+| Field                      | Purpose                                                  |
+|----------------------------|----------------------------------------------------------|
+| `policy.selector`          | `closest_first` or `priority`                            |
+| `policy.yielder`           | `freeze` or `orbit`                                      |
+| `policy.lifecycle`         | `one_way` or `round_trip`                                |
+| `policy.negotiators`       | Optional list: `expiry_guard`, `eta_switch`, `llm_negotiator` |
+| `policy.use_hysteresis`    | Keeps the current winner until landing unless overridden |
+| `policy.llm_model`         | Optional Anthropic model for `llm_negotiator`            |
+
+### 5.2 Planner-specific fields
 
 | Field                      | Purpose                                                  |
 |----------------------------|----------------------------------------------------------|
@@ -362,11 +445,10 @@ If the key is missing, the advisor prints a warning and the planner
 continues unchanged.
 
 The legacy `use_orbit` and `use_negotiation` flags from the Phase 1-6
-chain are no longer recognised on this branch — the orbit/negotiation
-controllers were removed. Use `research/track-policy-yield` for those
-scenarios.
+chain are no longer used directly; yield behavior is now selected through
+the `yield_control` command and each config's `policy` block.
 
-### 5.2 Per-drone fields
+### 5.3 Per-drone fields
 
 | Field                      | Purpose                                                  |
 |----------------------------|----------------------------------------------------------|
@@ -377,7 +459,7 @@ scenarios.
 | `time_to_expiry`           | Steps before cargo expires (used by priority score)      |
 | `patient_acuity`           | `critical` / `urgent` / `routine`                        |
 
-### 5.3 Scenario-level fields
+### 5.4 Scenario-level fields
 
 | Field                       | Purpose                                                  |
 |-----------------------------|----------------------------------------------------------|
@@ -390,11 +472,13 @@ scenarios.
 
 ---
 
-## 6. Relation to other track
+## 6. PR framing
 
-- This branch implements **Track 2 only** (trajectory planner family).
-- Yield/orbit/negotiation work (single-winner discrete coordination)
-  lives in `research/track-policy-yield`.
-- LLM extensions for either track go on dedicated child branches; see
-  `LLM_BRANCH_BOOTSTRAP.md` (in `dev/jinyoon` / Track 1 history) for the
-  shared bootstrap notes.
+This branch is intended for a single PR that submits both tracks without
+mixing their controller designs:
+
+- Track 1 preserves and modularizes the policy/yield/negotiation path.
+- Track 2 is the current main trajectory-planner path.
+- Both tracks share the MPC core and renderer.
+- Both LLM integrations are optional and use environment variable
+  `ANTHROPIC_API_KEY`; no API key is stored in the repo.

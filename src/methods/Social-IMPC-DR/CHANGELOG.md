@@ -5,6 +5,58 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 
 ---
 
+## [Final submission interface] — Track-first commands and planner modes
+
+### Added
+- `yield_control/` package name for Track 1's single-winner yield method.
+- `trajectory_planner/` package with:
+  - `baseline.py` for the current working speed-scaling planner,
+  - `llm_advisor.py` for the existing explanation helper,
+  - `registry.py` for `baseline`, `llm`, `lookahead`, and `compare_all`
+    mode names,
+  - placeholders for Shariq's future trajectory LLM method and Leonardo's
+    future look-ahead planner.
+
+### Changed
+- `app2_standardized.py` now supports track-first commands:
+  - `python app2_standardized.py yield_control configs/track_policy_*.json`
+  - `python app2_standardized.py trajectory_planner baseline configs/track_trajectory_*.json`
+  - `python app2_standardized.py trajectory_planner llm configs/track_trajectory_*.json`
+  - `python app2_standardized.py trajectory_planner lookahead configs/track_trajectory_*.json`
+  - `python app2_standardized.py trajectory_planner compare_all configs/track_trajectory_*.json`
+- `test.py` delegates trajectory controller construction to
+  `trajectory_planner.registry`.
+
+### Compatibility
+- `landing_pad` remains the internal environment for both tracks.
+- Legacy imports from `trajectory_planner_controller.py` and
+  `llm_advisor.py` still work through compatibility shims.
+
+---
+
+## [Combined submission] — Include Track 1 and Track 2 as separate modules
+
+### Added
+- `yield_control/` package from Track 1, including the selector, yielder,
+  lifecycle, negotiator, registry, and controller modules.
+- `configs/track_policy_*.json` scenarios and matching
+  `logs/Social-IMPC-DR/animations/track_policy_*.gif` outputs.
+
+### Changed
+- `test.py` now supports two explicit landing-pad dispatch paths:
+  `policy_recipe` builds the Track 1 `PolicyYieldController`, while
+  `round_trip_params` builds the Track 2 `TrajectoryPlannerController`.
+- `app2_standardized.py` now reads either a Track 1 `policy` block or
+  Track 2 `use_trajectory_planner: true` fields from scenario JSON.
+- `README.md` now documents both tracks as separate modules for one PR.
+
+### Compatibility
+- The two controller designs remain separate. The combined branch does
+  not merge policy/yield behavior into the trajectory planner or restore
+  the old Phase-era inheritance chain.
+
+---
+
 ## [Track 2 LLM advisor] — Modular explanation layer for the planner
 
 ### Added

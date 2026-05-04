@@ -7,8 +7,8 @@ import pickle
 import copy
 import os
 import csv
-from llm_advisor import TrajectoryLLMAdvisor
-from trajectory_planner_controller import TrajectoryPlannerController
+from trajectory_planner import build_trajectory_controller
+from yield_control import build_policy_yield_controller
 
 def data_capture(a, b, c):
     data = {
@@ -31,7 +31,7 @@ def initialize(cargo_configs=None):
 
     return agent_list
 
-def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, round_trip_params=None):
+def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, policy_recipe=None, round_trip_params=None, trajectory_mode="baseline"):
 
     # os.sched_setaffinity(0,[0,1,2,3,4,5,6,7])
     
@@ -81,42 +81,28 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     # Track which drones were yielding in the previous step (for MPC reset on release)
     pad_previously_yielding = set()
 
-    # Track 2 ships exactly one controller: the trajectory planner. The
-    # round-trip FSM lives inside it (no separate base class). The
-    # yield/orbit/negotiation family lives on `research/track-policy-yield`.
+    # Final submission branch: the CLI selects either yield_control or a
+    # trajectory_planner mode. Internally both run on the landing-pad env.
     if env_type == 'landing_pad':
-        if not (cargo_configs and round_trip_params
-                and round_trip_params.get('use_trajectory_planner', False)):
+        if round_trip_params and round_trip_params.get('use_trajectory_planner', False):
+            controller = build_trajectory_controller(
+                trajectory_mode,
+                cargo_configs,
+                round_trip_params,
+                target,
+                ini_x,
+                num_moving_drones,
+            )
+        elif policy_recipe is not None:
+            controller = build_policy_yield_controller(
+                target=target,
+                policy_recipe=policy_recipe,
+            )
+        else:
             raise ValueError(
-                "Track 2 requires `use_trajectory_planner: true` and a "
-                "`cargo_configs` block in the scenario JSON. The "
-                "yield/orbit/negotiation controllers were removed from this "
-                "branch -- use `research/track-policy-yield` for those scenarios."
+                "Final submission requires either the `yield_control` track "
+                "or a `trajectory_planner` mode."
             )
-        llm_advisor = None
-        llm_params = round_trip_params.get('llm_advisor')
-        if llm_params and llm_params.get('enabled', False):
-            llm_advisor = TrajectoryLLMAdvisor(
-                mode=llm_params.get('mode', 'explain'),
-                model=llm_params.get('model'),
-                cache_steps=llm_params.get('cache_steps', 25),
-            )
-
-        controller = TrajectoryPlannerController(
-            cargo_configs,
-            return_points=round_trip_params.get(
-                'return_points',
-                [ini_x[i] for i in range(num_moving_drones)],
-            ),
-            n_trips=round_trip_params.get('n_trips', 1),
-            unload_steps=round_trip_params.get('unload_steps', 5),
-            max_speed=round_trip_params.get('max_speed', 1.0),
-            min_separation=round_trip_params.get('min_separation', 1.0),
-            safe_distance=round_trip_params.get('safe_distance', 1.2),
-            nominal_speed=round_trip_params.get('nominal_speed', 0.1),
-            llm_advisor=llm_advisor,
-        )
-        controller.bind(target)
     else:
         controller = None
 
@@ -318,6 +304,8 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
     if controller is not None and getattr(controller, "_llm_advisor", None) is not None:
         controller._llm_advisor.print_summary()
+    if controller is not None and hasattr(controller, "print_negotiator_summaries"):
+        controller.print_negotiator_summaries()
     
     return obj, agent_list, completion_step, frame_log
     
