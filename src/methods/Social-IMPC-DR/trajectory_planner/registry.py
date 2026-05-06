@@ -11,6 +11,7 @@ Mode names are part of the final submission interface:
 """
 
 from .baseline import TrajectoryPlannerController
+from .lookahead import LookaheadTrajectoryPlannerController
 from .llm_advisor import TrajectoryLLMAdvisor
 
 
@@ -24,11 +25,9 @@ def build_trajectory_controller(mode, cargo_configs, planner_params, target, ini
         supported = ", ".join(SUPPORTED_TRAJECTORY_MODES)
         raise ValueError(f"Unknown trajectory planner mode `{mode}`. Supported modes: {supported}")
 
+    controller_cls = TrajectoryPlannerController
     if mode == "lookahead":
-        raise NotImplementedError(
-            "trajectory_planner lookahead mode is reserved for Leonardo's method "
-            "and is not implemented yet."
-        )
+        controller_cls = LookaheadTrajectoryPlannerController
 
     if mode == "compare_all":
         print(
@@ -51,7 +50,7 @@ def build_trajectory_controller(mode, cargo_configs, planner_params, target, ini
             cache_steps=llm_params.get("cache_steps", 25),
         )
 
-    controller = TrajectoryPlannerController(
+    controller = controller_cls(
         cargo_configs,
         return_points=planner_params.get(
             "return_points",
