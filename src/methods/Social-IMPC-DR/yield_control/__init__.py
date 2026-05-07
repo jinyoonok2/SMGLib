@@ -11,7 +11,7 @@ Roles
 - ``Negotiator``   may override the selector decision (expiry guard, ETA switch)
 
 A scenario picks one of each role plus zero or more negotiators via the
-``policy`` block in the JSON config; see ``configs/track_policy_*.json``.
+``policy`` block in the JSON config; see ``configs/yield_control/*.json``.
 """
 
 from .context import Context, PAD_CENTER

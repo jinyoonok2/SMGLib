@@ -50,8 +50,8 @@ pip install -r requirements.txt
 Run one scenario from either track to confirm the install:
 
 ```bash
-python app2_standardized.py trajectory_planner baseline configs/track_trajectory_oneway.json
-python app2_standardized.py yield_control configs/track_policy_baseline_closest.json
+python app2_standardized.py trajectory_planner baseline configs/trajectory_planner/baseline_oneway.json
+python app2_standardized.py yield_control configs/yield_control/baseline_closest.json
 ```
 
 A GIF is written to `logs/Social-IMPC-DR/animations/`.
@@ -167,7 +167,7 @@ src/methods/Social-IMPC-DR/
 │   ├── baseline.py                     #   current working planner
 │   ├── llm_advisor.py                  #   optional explanation helper
 │   ├── llm_method.py                   #   placeholder for Shariq's method
-│   ├── lookahead.py                    #   placeholder for Leonardo's method
+│   ├── lookahead.py                    #   Leonardo finite-horizon planner
 │   └── registry.py                     #   baseline/llm/lookahead/compare_all
 ├── trajectory_planner_controller.py    # compatibility import
 ├── llm_advisor.py                      # compatibility import
@@ -177,10 +177,11 @@ src/methods/Social-IMPC-DR/
 ├── app2_standardized.py               # entry point: scenario JSON or interactive
 ├── test.py                            # shared simulation loop, track dispatch
 ├── configs/
-│   ├── track_policy_*.json              # Track 1 policy/yield scenarios
-│   ├── track_trajectory_oneway.json     # one-way planner scenario
-│   ├── track_trajectory_round_trip.json # round-trip planner scenario
-│   ├── track_trajectory_llm_explain.json # planner + explanation-only LLM advisor
+│   ├── yield_control/*.json              # Track 1 policy/yield scenarios
+│   ├── trajectory_planner/baseline_oneway.json     # one-way planner scenario
+│   ├── trajectory_planner/baseline_round_trip.json # round-trip planner scenario
+│   ├── trajectory_planner/llm_explain.json # planner + explanation-only LLM advisor
+│   ├── trajectory_planner/lookahead_oneway.json # Leonardo lookahead planner scenario
 │   └── priority_config.json           # priority weights, cargo/acuity scores
 └── (MPC core: run.py, avoid.py, uav.py, SET.py, others.py, plot.py, ...)
 ```
@@ -285,39 +286,40 @@ each other.
 
 | Config file                                       | Track | What it exercises                                  |
 |---------------------------------------------------|-------|----------------------------------------------------|
-| `track_policy_baseline_closest.json`              | 1     | `closest_first` + `freeze` + `one_way`             |
-| `track_policy_priority.json`                      | 1     | medical priority selector + hysteresis             |
-| `track_policy_orbit_hold.json`                    | 1     | orbit yielder                                      |
-| `track_policy_negotiation.json`                   | 1     | priority/ETA negotiation recipe                    |
-| `track_policy_negotiation_no_hysteresis.json`     | 1     | negotiation without held winner                    |
-| `track_policy_negotiation_expiry_guard.json`      | 1     | expiry override negotiator                         |
-| `track_policy_negotiation_eta_switch.json`        | 1     | ETA switch negotiator                              |
-| `track_policy_round_trip.json`                    | 1     | policy/yield round-trip lifecycle                  |
-| `track_policy_llm_negotiator.json`                | 1     | Shariq-style LLM negotiator plugin                 |
-| `track_trajectory_oneway.json`                    | 2     | simultaneous flight, single delivery               |
-| `track_trajectory_round_trip.json`                | 2     | 2 trips each, full Source -> Pad -> Source loop    |
-| `track_trajectory_llm_explain.json`               | 2     | planner plus explanation-only LLM advisor          |
+| `yield_control/baseline_closest.json`              | 1     | `closest_first` + `freeze` + `one_way`             |
+| `yield_control/priority.json`                      | 1     | medical priority selector + hysteresis             |
+| `yield_control/orbit_hold.json`                    | 1     | orbit yielder                                      |
+| `yield_control/negotiation.json`                   | 1     | priority/ETA negotiation recipe                    |
+| `yield_control/negotiation_no_hysteresis.json`     | 1     | negotiation without held winner                    |
+| `yield_control/negotiation_expiry_guard.json`      | 1     | expiry override negotiator                         |
+| `yield_control/negotiation_eta_switch.json`        | 1     | ETA switch negotiator                              |
+| `yield_control/round_trip.json`                    | 1     | policy/yield round-trip lifecycle                  |
+| `yield_control/llm_negotiator.json`                | 1     | Shariq-style LLM negotiator plugin                 |
+| `trajectory_planner/baseline_oneway.json`                    | 2     | simultaneous flight, single delivery               |
+| `trajectory_planner/baseline_round_trip.json`                | 2     | 2 trips each, full Source -> Pad -> Source loop    |
+| `trajectory_planner/llm_explain.json`               | 2     | planner plus explanation-only LLM advisor          |
+| `trajectory_planner/lookahead_oneway.json`          | 2     | Leonardo finite-horizon lookahead planner          |
 
 Each GIF below is the output of running the matching config from
 section 4.2. Paths are relative to this README; on GitHub they render
 inline.
 
-**`track_trajectory_oneway`** — 3 drones cruise simultaneously; the
+**`trajectory_planner_baseline_oneway`** — 3 drones cruise simultaneously; the
 planner caps each drone's `Vmax` so arrivals are sequenced by priority
 with `min_separation` spacing. Each drone returns to its start once
 unloaded (no home-pad markers because `n_trips == 1`).
 
-![track_trajectory_oneway](../../../logs/Social-IMPC-DR/animations/track_trajectory_oneway.gif)
+![trajectory_planner_baseline_oneway](../../../logs/Social-IMPC-DR/animations/trajectory_planner/trajectory_planner_baseline_oneway.gif)
 
-**`track_trajectory_round_trip`** — same planner but `n_trips = 2`
+**`trajectory_planner_baseline_round_trip`** — same planner but `n_trips = 2`
 per drone. Drones replan whenever the inbound set changes
 (`INBOUND → UNLOADING`, `UNLOADING → OUTBOUND`, `OUTBOUND → INBOUND`).
 Per-drone home pads (dashed circles) mark each shuttle's return point.
 
-![track_trajectory_round_trip](../../../logs/Social-IMPC-DR/animations/track_trajectory_round_trip.gif)
+![trajectory_planner_baseline_round_trip](../../../logs/Social-IMPC-DR/animations/trajectory_planner/trajectory_planner_baseline_round_trip.gif)
 
 Track 1 animations are also included under
-`logs/Social-IMPC-DR/animations/track_policy_*.gif`.
+`logs/Social-IMPC-DR/animations/yield_control/`.
 
 ### 4.2 Commands
 
@@ -326,30 +328,30 @@ cd src/methods/Social-IMPC-DR
 conda activate smglib
 
 # Baseline planner scenario (current Jinyoon method)
-python app2_standardized.py trajectory_planner baseline configs/track_trajectory_oneway.json
+python app2_standardized.py trajectory_planner baseline configs/trajectory_planner/baseline_oneway.json
 
 # Round-trip planner scenario
-python app2_standardized.py trajectory_planner baseline configs/track_trajectory_round_trip.json
+python app2_standardized.py trajectory_planner baseline configs/trajectory_planner/baseline_round_trip.json
 
-# Reserved Shariq LLM planner mode; currently uses baseline + advisor hook
-python app2_standardized.py trajectory_planner llm configs/track_trajectory_llm_explain.json
+# Shariq LLM advisor/explanation mode
+python app2_standardized.py trajectory_planner llm configs/trajectory_planner/llm_explain.json
 
-# Reserved Leonardo look-ahead planner mode; raises NotImplementedError until added
-python app2_standardized.py trajectory_planner lookahead configs/track_trajectory_oneway.json
+# Leonardo finite-horizon lookahead planner
+python app2_standardized.py trajectory_planner lookahead configs/trajectory_planner/lookahead_oneway.json
 
-# Reserved comparison mode; currently runs baseline until other planners land
-python app2_standardized.py trajectory_planner compare_all configs/track_trajectory_oneway.json
+# Comparison entry point; currently uses the registry behavior for available modes
+python app2_standardized.py trajectory_planner compare_all configs/trajectory_planner/baseline_oneway.json
 
 # Yield-control baseline
-python app2_standardized.py yield_control configs/track_policy_baseline_closest.json
+python app2_standardized.py yield_control configs/yield_control/baseline_closest.json
 
 # Yield-control + LLM negotiator
-python app2_standardized.py yield_control configs/track_policy_llm_negotiator.json
+python app2_standardized.py yield_control configs/yield_control/llm_negotiator.json
 ```
 
 Outputs (per run):
 
-- `logs/Social-IMPC-DR/animations/<test_name>.gif`
+- `logs/Social-IMPC-DR/animations/<track>/<test_name>.gif`
 - `avg_delta_velocity_robot_*.csv`, `path_deviation_robot_*.csv`,
   `ttg_impc_dr.csv`, `completion_step.txt` in the run directory
 
@@ -363,11 +365,11 @@ Verbose console output includes a periodic schedule dump:
 
 ## 5. Scenario configuration
 
-Example (`configs/track_trajectory_oneway.json`):
+Example (`configs/trajectory_planner/baseline_oneway.json`):
 
 ```json
 {
-    "test_name": "track_trajectory_oneway",
+    "test_name": "trajectory_planner_baseline_oneway",
     "env_type": "landing_pad",
     "verbose": true,
     "num_moving_drones": 3,

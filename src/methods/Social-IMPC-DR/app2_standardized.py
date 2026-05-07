@@ -20,6 +20,10 @@ TRACK_ALIASES = {
     "trajectory_planner": "trajectory_planner",
 }
 TRAJECTORY_MODES = {"baseline", "llm", "lookahead", "compare_all"}
+ANIMATION_TRACK_DIRS = {
+    "yield_control": "yield_control",
+    "trajectory_planner": "trajectory_planner",
+}
 
 
 def _load_config(config_arg):
@@ -34,11 +38,11 @@ def parse_command(argv):
     """Parse final-submission and legacy command styles.
 
     New style:
-        app2_standardized.py yield_control configs/track_policy_*.json
-        app2_standardized.py trajectory_planner baseline configs/track_trajectory_*.json
-        app2_standardized.py trajectory_planner llm configs/track_trajectory_*.json
-        app2_standardized.py trajectory_planner lookahead configs/track_trajectory_*.json
-        app2_standardized.py trajectory_planner compare_all configs/track_trajectory_*.json
+        app2_standardized.py yield_control configs/yield_control/*.json
+        app2_standardized.py trajectory_planner baseline configs/trajectory_planner/*.json
+        app2_standardized.py trajectory_planner llm configs/trajectory_planner/*.json
+        app2_standardized.py trajectory_planner lookahead configs/trajectory_planner/*.json
+        app2_standardized.py trajectory_planner compare_all configs/trajectory_planner/*.json
 
     Legacy style is still accepted:
         app2_standardized.py landing_pad configs/*.json
@@ -104,17 +108,30 @@ def get_input(prompt, default, type_cast=str):
         except ValueError:
             print(f"Invalid input! Please enter a valid {type_cast.__name__}.")
 
-def _impc_logs_dirs():
+def _animation_track_name(track_name=None, filename=None):
+    if track_name in ANIMATION_TRACK_DIRS:
+        return track_name
+    if filename:
+        name = Path(filename).name
+        if name.startswith(("yield_control_", "track_policy_")):
+            return "yield_control"
+        if name.startswith(("trajectory_planner_", "track_trajectory_")):
+            return "trajectory_planner"
+    return None
+
+
+def _impc_logs_dirs(track_name=None):
     root_dir = Path(__file__).resolve().parents[3]
     anim_dir = root_dir / 'logs' / 'Social-IMPC-DR' / 'animations'
-    traj_dir = root_dir / 'logs' / 'Social-IMPC-DR' / 'trajectories'
+    if track_name in ANIMATION_TRACK_DIRS:
+        anim_dir = anim_dir / ANIMATION_TRACK_DIRS[track_name]
     anim_dir.mkdir(parents=True, exist_ok=True)
-    traj_dir.mkdir(parents=True, exist_ok=True)
-    return anim_dir, traj_dir
+    return anim_dir
 
-def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default', frame_log=None):
+def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default', frame_log=None, track_name=None):
     """Save animation as GIF file using standardized environment configuration."""
-    anim_dir, _ = _impc_logs_dirs()
+    resolved_track = _animation_track_name(track_name, filename)
+    anim_dir = _impc_logs_dirs(resolved_track)
     if filename is None:
         filename = anim_dir / f"{scenario_type}_{agent_summary}agents.gif"
     else:
@@ -256,13 +273,14 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     print(f"GIF animation saved as {filename}")
     plt.close(fig)
 
-def generate_animation_standardized(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None, frame_log=None):
+def generate_animation_standardized(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None, frame_log=None, track_name=None):
     """Generate animation using standardized environment configuration."""
     if agent_summary is None:
         agent_summary = f"{len(agent_list)}"
     save_gif_standardized(agent_list, r_min, filename=filename, fps=StandardizedEnvironment.ANIMATION_FPS,
                          num_moving_agents=num_moving_agents,
-                         scenario_type=scenario_type, agent_summary=agent_summary, frame_log=frame_log)
+                         scenario_type=scenario_type, agent_summary=agent_summary, frame_log=frame_log,
+                         track_name=track_name)
 
 def _generate_animation_standardized_unused(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None):
     """(Unused) Old frame-by-frame capture path kept for reference."""
@@ -586,12 +604,12 @@ def main():
 
         # --- Cargo priority configuration (landing_pad only) ---
         # Track 2 interactive mode does not build planner/round-trip params;
-        # use config-file mode (a `track_trajectory_*.json`) for actual runs.
+        # use config-file mode (`configs/trajectory_planner/*.json`) for actual runs.
         cargo_configs = None
         policy_recipe = None
         round_trip_params = None
         if env_type == 'landing_pad':
-            default_cfg_path = Path(__file__).resolve().parent / 'configs' / 'track_trajectory_oneway.json'
+            default_cfg_path = Path(__file__).resolve().parent / 'configs' / 'trajectory_planner' / 'baseline_oneway.json'
             with open(default_cfg_path, 'r') as f:
                 default_cfg = json.load(f)
             default_cargos = [
@@ -647,7 +665,7 @@ def main():
         else:
             gif_filename = f"{env_type}_{num_moving_drones}agents_{controller_tag}.gif"
         agent_summary = f"{num_moving_drones}_{controller_tag}"
-        generate_animation_standardized(agent_list, min_radius, filename=gif_filename, num_moving_agents=num_moving_drones, scenario_type=env_type, agent_summary=agent_summary, frame_log=frame_log)
+        generate_animation_standardized(agent_list, min_radius, filename=gif_filename, num_moving_agents=num_moving_drones, scenario_type=env_type, agent_summary=agent_summary, frame_log=frame_log, track_name=track_name)
     else:
         print("\nSimulation failed to find a solution.")
 

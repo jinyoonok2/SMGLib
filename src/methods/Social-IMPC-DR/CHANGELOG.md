@@ -14,18 +14,21 @@ For project overview, architecture, results, and usage, see [README.md](README.m
   - `llm_advisor.py` for the existing explanation helper,
   - `registry.py` for `baseline`, `llm`, `lookahead`, and `compare_all`
     mode names,
-  - placeholders for Shariq's future trajectory LLM method and Leonardo's
-    future look-ahead planner.
+  - Leonardo's finite-horizon lookahead planner mode,
 
 ### Changed
 - `app2_standardized.py` now supports track-first commands:
-  - `python app2_standardized.py yield_control configs/track_policy_*.json`
-  - `python app2_standardized.py trajectory_planner baseline configs/track_trajectory_*.json`
-  - `python app2_standardized.py trajectory_planner llm configs/track_trajectory_*.json`
-  - `python app2_standardized.py trajectory_planner lookahead configs/track_trajectory_*.json`
-  - `python app2_standardized.py trajectory_planner compare_all configs/track_trajectory_*.json`
+  - `python app2_standardized.py yield_control configs/yield_control/*.json`
+  - `python app2_standardized.py trajectory_planner baseline configs/trajectory_planner/*.json`
+  - `python app2_standardized.py trajectory_planner llm configs/trajectory_planner/*.json`
+  - `python app2_standardized.py trajectory_planner lookahead configs/trajectory_planner/*.json`
+  - `python app2_standardized.py trajectory_planner compare_all configs/trajectory_planner/*.json`
 - `test.py` delegates trajectory controller construction to
   `trajectory_planner.registry`.
+- Scenario JSON files are grouped by track under `configs/yield_control/`
+  and `configs/trajectory_planner/`.
+- `configs/trajectory_planner/lookahead_oneway.json` gives Leonardo's
+  lookahead mode a distinct scenario name and GIF output.
 
 ### Compatibility
 - `landing_pad` remains the internal environment for both tracks.
@@ -39,8 +42,8 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 ### Added
 - `yield_control/` package from Track 1, including the selector, yielder,
   lifecycle, negotiator, registry, and controller modules.
-- `configs/track_policy_*.json` scenarios and matching
-  `logs/Social-IMPC-DR/animations/track_policy_*.gif` outputs.
+- `configs/yield_control/*.json` scenarios and matching
+  `logs/Social-IMPC-DR/animations/yield_control/` outputs.
 
 ### Changed
 - `test.py` now supports two explicit landing-pad dispatch paths:
@@ -64,7 +67,7 @@ For project overview, architecture, results, and usage, see [README.md](README.m
   Shariq's Phase 5 LLM work without importing the old yield/orbit/
   negotiation controller chain. It owns Anthropic API calls, prompt
   construction, response parsing, cache handling, and summary logging.
-- `configs/track_trajectory_llm_explain.json`, a Track 2-named scenario
+- `configs/trajectory_planner/llm_explain.json`, a Track 2-named scenario
   that enables the advisor in `llm_mode: "explain"`.
 
 ### Changed
@@ -143,7 +146,7 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 - `app2_standardized.py` no longer builds `orbit_params` /
   `negotiation_params`. Scenario JSON's `use_orbit` / `use_negotiation`
   flags are now ignored (and have been dropped from the shipped
-  `track_trajectory_*.json` configs).
+  `trajectory_planner/*.json` configs).
 
 ### Behaviour delta
 - The pad-busy safety net used to inherit `freeze_yielding` from
@@ -164,8 +167,8 @@ For project overview, architecture, results, and usage, see [README.md](README.m
   simultaneous inbound flight; ranks drones by priority and assigns
   per-drone `Vmax` from `max_speed`, `min_separation`, and `unload_steps`
   with replanning whenever the inbound set changes.
-- **`configs/track_trajectory_oneway.json`** and
-  **`configs/track_trajectory_round_trip.json`** scenarios.
+- **`configs/trajectory_planner/baseline_oneway.json`** and
+  **`configs/trajectory_planner/baseline_round_trip.json`** scenarios.
 - Wiring in `test.py` (`use_trajectory_planner` selects
   `TrajectoryPlannerController`) and `app2_standardized.py` (parses
   planner-specific fields and tags the output GIF as `planner`).
@@ -182,9 +185,9 @@ For project overview, architecture, results, and usage, see [README.md](README.m
 - `test_phase2.py` — Phase-era standalone test script.
 
 ### Migration
-- Use `track_trajectory_*.json` on this branch for all planner runs.
+- Use `trajectory_planner/*.json` on this branch for all planner runs.
 - For yield/orbit/negotiation experiments, switch to the
-  `research/track-policy-yield` branch and use `track_policy_*.json`.
+  `research/track-policy-yield` branch and use `yield_control/*.json`.
 
 ---
 
