@@ -7,13 +7,6 @@ import pickle
 import copy
 import os
 import csv
-from landing_pad import LandingPadController
-from priority_manager import PriorityManager
-from orbit_controller import OrbitController
-from negotiation_controller import NegotiationController
-from round_trip_controller import RoundTripController
-from trajectory_planner_controller import TrajectoryPlannerController
-from llm_controller import LLMController
 
 def data_capture(a, b, c):
     data = {
@@ -23,24 +16,18 @@ def data_capture(a, b, c):
     }
     return data
 
-def initialize(cargo_configs=None):
+def initialize():
     agent_list=[]
     for i in range(SET.Num):
-        kwargs = {}
-        if cargo_configs is not None and i < len(cargo_configs):
-            cfg = cargo_configs[i]
-            kwargs['cargo_type'] = cfg['cargo_type']
-            kwargs['time_to_expiry'] = cfg['time_to_expiry']
-            kwargs['patient_acuity'] = cfg['patient_acuity']
-        agent_list+=[ uav(i,SET.ini_x[i],SET.ini_v[i],SET.target[i],SET.K, **kwargs) ]
+        agent_list+=[ uav(i,SET.ini_x[i],SET.ini_v[i],SET.target[i],SET.K) ]
 
     return agent_list
 
-def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None, cargo_configs=None, orbit_params=None, negotiation_params=None, round_trip_params=None):
+def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones=None, wall_collision_multiplier=2.0, verbose=True, env_type=None):
 
     # os.sched_setaffinity(0,[0,1,2,3,4,5,6,7])
     
-    SET.initialize_set(Num, ini_x, ini_v, target,r_min,epsilon,h,K,episodes, wall_collision_multiplier, env_type, NUM_MOVING_DRONES=num_moving_drones)
+    SET.initialize_set(Num, ini_x, ini_v, target,r_min,epsilon,h,K,episodes, wall_collision_multiplier, env_type)
 
     obj = {}
 
@@ -48,7 +35,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
 
     episodes=SET.episodes
     
-    agent_list=initialize(cargo_configs=cargo_configs)
+    agent_list=initialize()
 
     collect_data(agent_list)
 
@@ -86,89 +73,6 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     # Track which drones were yielding in the previous step (for MPC reset on release)
     pad_previously_yielding = set()
 
-    # Pick the appropriate controller for landing pad scenarios
-    if env_type == 'landing_pad':
-        planner_enabled = bool(
-            round_trip_params and round_trip_params.get('use_trajectory_planner', False)
-        )
-        round_trip_enabled = bool(
-            round_trip_params and round_trip_params.get('round_trip', False)
-        )
-
-        if cargo_configs and negotiation_params and negotiation_params.get('use_llm', False):
-            controller = LLMController(    # Phase 5
-                cargo_configs,
-                orbit_radius=negotiation_params.get('orbit_radius', 0.7),
-                orbit_speed=negotiation_params.get('orbit_speed', 0.15),
-                safe_distance=negotiation_params.get('safe_distance', 1.2),
-                nominal_speed=negotiation_params.get('nominal_speed', 0.1),
-                eta_threshold=negotiation_params.get('eta_threshold', 0.15),
-                use_hysteresis=negotiation_params.get('use_hysteresis', True),
-                use_llm_hook=True,
-            )
-        elif cargo_configs and planner_enabled:
-            controller = TrajectoryPlannerController(   # Phase 7
-                cargo_configs,
-                return_points=round_trip_params.get(
-                    'return_points',
-                    [ini_x[i] for i in range(num_moving_drones)],
-                ),
-                n_trips=round_trip_params.get('n_trips', 1),
-                unload_steps=round_trip_params.get('unload_steps', 5),
-                max_speed=round_trip_params.get('max_speed', 1.0),
-                min_separation=round_trip_params.get('min_separation', 1.0),
-                safe_distance=round_trip_params.get('safe_distance', 1.2),
-                nominal_speed=round_trip_params.get('nominal_speed', 0.1),
-                orbit_radius=round_trip_params.get('orbit_radius', 0.7),
-                orbit_speed=round_trip_params.get('orbit_speed', 0.15),
-                eta_threshold=round_trip_params.get('eta_threshold', 0.15),
-                use_hysteresis=round_trip_params.get('use_hysteresis', True),
-            )
-            controller.bind(target)
-        elif cargo_configs and round_trip_enabled:
-            controller = RoundTripController(      # Phase 6
-                cargo_configs,
-                return_points=round_trip_params.get(
-                    'return_points',
-                    [ini_x[i] for i in range(num_moving_drones)],
-                ),
-                n_trips=round_trip_params.get('n_trips', 2),
-                unload_steps=round_trip_params.get('unload_steps', 5),
-                orbit_radius=round_trip_params.get('orbit_radius', 0.7),
-                orbit_speed=round_trip_params.get('orbit_speed', 0.15),
-                safe_distance=round_trip_params.get('safe_distance', 1.2),
-                nominal_speed=round_trip_params.get('nominal_speed', 0.1),
-                eta_threshold=round_trip_params.get('eta_threshold', 0.15),
-                use_hysteresis=round_trip_params.get('use_hysteresis', True),
-            )
-            controller.bind(target)
-        elif cargo_configs and negotiation_params:
-            controller = NegotiationController(    # Phase 4
-                cargo_configs,
-                orbit_radius=negotiation_params.get('orbit_radius', 0.7),
-                orbit_speed=negotiation_params.get('orbit_speed', 0.15),
-                safe_distance=negotiation_params.get('safe_distance', 1.2),
-                nominal_speed=negotiation_params.get('nominal_speed', 0.1),
-                eta_threshold=negotiation_params.get('eta_threshold', 0.15),
-                use_hysteresis=negotiation_params.get('use_hysteresis', True),
-            )
-        elif cargo_configs and orbit_params:
-            controller = OrbitController(           # Phase 3
-                cargo_configs,
-                orbit_radius=orbit_params.get('orbit_radius', 0.7),
-                orbit_speed=orbit_params.get('orbit_speed', 0.15),
-                use_hysteresis=orbit_params.get('use_hysteresis', True),
-            )
-        elif cargo_configs:
-            controller = PriorityManager(cargo_configs)   # Phase 2
-        else:
-            controller = LandingPadController()            # Phase 1
-    else:
-        controller = None
-
-    # Per-frame log: captures controller decision each step for animation labels
-    frame_log = [{'allowed': None, 'yielding': set(), 'method': None, 'scores': {}}]  # frame 0 = initial
-
     # the main loop
     start =datetime.datetime.now()
     end = start
@@ -176,43 +80,52 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
     for i in range(1,episodes+1):
         end_last=end
 
-        # Landing-pad lifecycle management (via controller)
-        if controller is not None:
-            controller.cleanup_landed(agent_list, target_reached,
-                                      num_moving_drones, SET.K)
+
+        # Clear landed drones from the airspace so they don't block the pad
+        if env_type == 'landing_pad':
+            for j in range(num_moving_drones):
+                if target_reached[j]:
+                    agent_list[j].p = np.array([100.0, 100.0])
+                    agent_list[j].v = np.zeros(2)
+                    agent_list[j].state = np.append(agent_list[j].p, agent_list[j].v)
+                    # Update pre_traj so obstacle_list doesn't retain old trajectory near pad
+                    agent_list[j].pre_traj = np.tile(np.array([100.0, 100.0]), (agent_list[j].K+1, 1))
 
         obstacle_list=get_obstacle_list(agent_list,SET.Num)
 
         # Determine which drones to run MPC on this step
         yielding_drones = set()
-        step_decision = {'allowed': None, 'yielding': set(), 'method': None, 'scores': {}}
-        if controller is not None:
-            active_drones = [j for j in range(num_moving_drones)
-                            if not target_reached[j]]
-
-            if len(active_drones) >= 1:
-                result = controller.select_active_drone(
-                    agent_list, active_drones, i, verbose
-                )
-                yielding_drones = result["yielding"]
-                controller.freeze_yielding(agent_list, yielding_drones)
-                step_decision = {
-                    'allowed': result.get('allowed'),
-                    'yielding': result.get('yielding', set()),
-                    'method': result.get('method'),
-                    'scores': result.get('scores', {}),
-                }
+        if env_type == 'landing_pad':
+            pad_center = np.array([0.0, 0.0])
+            active_drones = [j for j in range(num_moving_drones) if not target_reached[j]]
+            
+            if len(active_drones) > 1:
+                distances = [(j, np.linalg.norm(agent_list[j].p - pad_center)) for j in active_drones]
+                distances.sort(key=lambda x: x[1])
+                allowed_idx = distances[0][0]
+                
+                for j in active_drones:
+                    if j != allowed_idx:
+                        yielding_drones.add(j)
+                        # Freeze yielding drones — no MPC, just hold position
+                        agent_list[j].v = np.zeros(2)
+                        agent_list[j].state = np.append(agent_list[j].p, agent_list[j].v)
+                
+                if verbose and i % 20 == 0:
+                    print(f"  Pad yielding: drone {allowed_idx} approaching (dist={distances[0][1]:.2f}), "
+                          f"others holding: {[d[0] for d in distances[1:]]}")
 
         # Build list of drones to process (exclude landed and yielding)
         process_indices = [j for j in range(num_moving_drones)
                           if not target_reached[j] and j not in yielding_drones]
         
         # Reset MPC warm-start for drones just released from yielding
-        if controller is not None:
-            released = controller.get_released_drones(
-                process_indices, pad_previously_yielding
-            )
-            controller.reset_mpc(agent_list, released, verbose)
+        for j in process_indices:
+            if j in pad_previously_yielding:
+                agent_list[j].pre_traj = np.tile(agent_list[j].p, (agent_list[j].K+1, 1))
+                agent_list[j].cost_index = 0
+                if verbose:
+                    print(f"  Drone {j} released from holding — MPC reset")
         pad_previously_yielding = yielding_drones.copy()
 
         # Run MPC only for active, non-yielding drones
@@ -222,21 +135,21 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
             for idx, j in enumerate(process_indices):
                 agent_list[j] = process_agents[idx]
 
-        # Update position history for drones that skipped MPC
-        if controller is not None:
-            controller.update_idle_positions(
-                agent_list, process_indices, target_reached,
-                target, num_moving_drones
-            )
+        # Manually update position history for drones that skipped MPC
+        # (post_processing only runs inside run_one_agent, so skipped drones
+        #  have stale position arrays, causing misaligned animation frames)
+        if env_type == 'landing_pad':
+            for j in range(num_moving_drones):
+                if j not in process_indices:
+                    if target_reached[j]:
+                        agent_list[j].position = np.block([[agent_list[j].position], [target[j]]])
+                    else:
+                        agent_list[j].position = np.block([[agent_list[j].position], [agent_list[j].p]])
 
         # print
         end = datetime.datetime.now()
         if verbose:
             print("Step %s have finished, running time is %s"%(i,end-end_last))
-
-        # Per-step hook (Phase 2: decrement time_to_expiry; Phase 1: no-op)
-        if controller is not None:
-            controller.step_update(agent_list, target_reached, num_moving_drones)
     
 
         # Store velocity data
@@ -280,11 +193,7 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
                 path_data[j].append([px, py, px, py]) # nominal is same as actual
 
         # Check if all moving robots have reached their goals (for make-span calculation)
-        if controller is not None:
-            done = controller.all_finished(target_reached, num_moving_drones)
-        else:
-            done = all(target_reached[:num_moving_drones])
-        if not all_goals_reached and done:
+        if not all_goals_reached and all(target_reached[:num_moving_drones]):
             all_goals_reached = True
             completion_step = i
             if verbose:
@@ -293,7 +202,6 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         collect_data(agent_list)
 
         obj[i] = data_capture(SET.pos_list, SET.position_list, SET.terminal_index_list)
-        frame_log.append(step_decision)
 
         if all_goals_reached:
             break
@@ -362,8 +270,5 @@ def PLAN( Num, ini_x, ini_v,target,r_min,epsilon,h,K,episodes, num_moving_drones
         writer.writerows(ttg_list)
     print("TTG CSV file saved.")
     
-    if isinstance(controller, LLMController):
-        controller.print_llm_summary()
-
-    return obj, agent_list, completion_step, frame_log
+    return obj, agent_list, completion_step
     
