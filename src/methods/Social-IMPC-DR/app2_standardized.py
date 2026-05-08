@@ -2,17 +2,103 @@ import numpy as np
 import sys
 import os
 import json
+import time
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.animation import FuncAnimation
 import matplotlib.lines as mlines
 from test import PLAN
 from plot import plot_trajectory
+from run_metrics import write_run_metrics
 from pathlib import Path
 
 # Import standardized environment configuration
 sys.path.append(str(Path(__file__).resolve().parents[3] / 'src'))
 from utils import StandardizedEnvironment
+
+TRACK_ALIASES = {
+    "yield_control": "yield_control",
+    "policy_yield": "yield_control",
+    "trajectory_planner": "trajectory_planner",
+}
+TRAJECTORY_MODES = {"baseline", "llm", "lookahead", "compare_all"}
+ANIMATION_TRACK_DIRS = {
+    "yield_control": "yield_control",
+    "trajectory_planner": "trajectory_planner",
+}
+
+
+def _load_config(config_arg):
+    cfg_path = Path(config_arg)
+    if not cfg_path.is_absolute():
+        cfg_path = Path(__file__).resolve().parent / config_arg
+    with open(cfg_path, 'r') as f:
+        return json.load(f), cfg_path
+
+
+def parse_command(argv):
+    """Parse final-submission and legacy command styles.
+
+    New style:
+        app2_standardized.py yield_control configs/yield_control/*.json
+        app2_standardized.py trajectory_planner baseline configs/trajectory_planner/*.json
+        app2_standardized.py trajectory_planner llm configs/trajectory_planner/*.json
+        app2_standardized.py trajectory_planner lookahead configs/trajectory_planner/*.json
+        app2_standardized.py trajectory_planner compare_all configs/trajectory_planner/*.json
+
+    Legacy style is still accepted:
+        app2_standardized.py landing_pad configs/*.json
+    """
+    track_name = None
+    trajectory_mode = "baseline"
+    env_type = None
+    scenario_config = None
+    config_path = None
+    verbose_mode = True
+
+    args = list(argv[1:])
+    if not args:
+        return track_name, trajectory_mode, env_type, scenario_config, config_path, verbose_mode
+
+    first = args[0]
+    if first in TRACK_ALIASES:
+        track_name = TRACK_ALIASES[first]
+        env_type = "landing_pad"
+        rest = args[1:]
+        if track_name == "trajectory_planner":
+            if rest and rest[0] in TRAJECTORY_MODES:
+                trajectory_mode = rest[0]
+                rest = rest[1:]
+            elif rest and rest[0].endswith(".json"):
+                trajectory_mode = "baseline"
+            else:
+                raise ValueError(
+                    "trajectory_planner requires a mode "
+                    "(baseline, llm, lookahead, compare_all) and a config path."
+                )
+        if rest and rest[0].endswith(".json"):
+            scenario_config, config_path = _load_config(rest[0])
+            verbose_mode = scenario_config.get("verbose", True)
+        if rest and "--verbose" in rest:
+            verbose_mode = True
+        if rest and "--quiet" in rest:
+            verbose_mode = False
+        return track_name, trajectory_mode, env_type, scenario_config, config_path, verbose_mode
+
+    # Legacy environment-first style.
+    env_type = first
+    if len(args) > 1:
+        arg2 = args[1]
+        if arg2.endswith(".json"):
+            scenario_config, config_path = _load_config(arg2)
+            env_type = scenario_config.get("env_type", env_type)
+            verbose_mode = scenario_config.get("verbose", True)
+        else:
+            verbose_mode = (arg2 == "--verbose")
+    if len(args) > 2:
+        verbose_mode = (args[2] == "--verbose")
+    return track_name, trajectory_mode, env_type, scenario_config, config_path, verbose_mode
+
 
 def get_input(prompt, default, type_cast=str):
     while True:
@@ -24,17 +110,30 @@ def get_input(prompt, default, type_cast=str):
         except ValueError:
             print(f"Invalid input! Please enter a valid {type_cast.__name__}.")
 
-def _impc_logs_dirs():
+def _animation_track_name(track_name=None, filename=None):
+    if track_name in ANIMATION_TRACK_DIRS:
+        return track_name
+    if filename:
+        name = Path(filename).name
+        if name.startswith(("yield_control_", "track_policy_")):
+            return "yield_control"
+        if name.startswith(("trajectory_planner_", "track_trajectory_")):
+            return "trajectory_planner"
+    return None
+
+
+def _impc_logs_dirs(track_name=None):
     root_dir = Path(__file__).resolve().parents[3]
     anim_dir = root_dir / 'logs' / 'Social-IMPC-DR' / 'animations'
-    traj_dir = root_dir / 'logs' / 'Social-IMPC-DR' / 'trajectories'
+    if track_name in ANIMATION_TRACK_DIRS:
+        anim_dir = anim_dir / ANIMATION_TRACK_DIRS[track_name]
     anim_dir.mkdir(parents=True, exist_ok=True)
-    traj_dir.mkdir(parents=True, exist_ok=True)
-    return anim_dir, traj_dir
+    return anim_dir
 
-def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default', frame_log=None):
+def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default', frame_log=None, track_name=None):
     """Save animation as GIF file using standardized environment configuration."""
-    anim_dir, _ = _impc_logs_dirs()
+    resolved_track = _animation_track_name(track_name, filename)
+    anim_dir = _impc_logs_dirs(resolved_track)
     if filename is None:
         filename = anim_dir / f"{scenario_type}_{agent_summary}agents.gif"
     else:
@@ -176,13 +275,14 @@ def save_gif_standardized(agent_list, r_min, filename=None, fps=5, num_moving_ag
     print(f"GIF animation saved as {filename}")
     plt.close(fig)
 
-def generate_animation_standardized(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None, frame_log=None):
+def generate_animation_standardized(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None, frame_log=None, track_name=None):
     """Generate animation using standardized environment configuration."""
     if agent_summary is None:
         agent_summary = f"{len(agent_list)}"
     save_gif_standardized(agent_list, r_min, filename=filename, fps=StandardizedEnvironment.ANIMATION_FPS,
                          num_moving_agents=num_moving_agents,
-                         scenario_type=scenario_type, agent_summary=agent_summary, frame_log=frame_log)
+                         scenario_type=scenario_type, agent_summary=agent_summary, frame_log=frame_log,
+                         track_name=track_name)
 
 def _generate_animation_standardized_unused(agent_list, r_min, filename=None, num_moving_agents=None, scenario_type='impc', agent_summary=None):
     """(Unused) Old frame-by-frame capture path kept for reference."""
@@ -320,29 +420,9 @@ def setup_standardized_scenario(env_type):
     return ini_x_obstacles, ini_v_obstacles, target_obstacles
 
 def main():
-    env_type = None
-    verbose_mode = True  # Default to verbose for backwards compatibility
-    scenario_config = None
-    
-    if len(sys.argv) > 1:
-        env_type = sys.argv[1]
-    
-    if len(sys.argv) > 2:
-        # Check if second arg is a scenario config file or --verbose flag
-        arg2 = sys.argv[2]
-        if arg2.endswith('.json'):
-            cfg_path = Path(arg2)
-            if not cfg_path.is_absolute():
-                cfg_path = Path(__file__).resolve().parent / arg2
-            with open(cfg_path, 'r') as f:
-                scenario_config = json.load(f)
-            env_type = scenario_config['env_type']
-            verbose_mode = scenario_config.get('verbose', True)
-        else:
-            verbose_mode = (arg2 == '--verbose')
-    
-    if len(sys.argv) > 3:
-        verbose_mode = (sys.argv[3] == '--verbose')
+    track_name, trajectory_mode, env_type, scenario_config, config_path, verbose_mode = parse_command(sys.argv)
+    if track_name in ("yield_control", "trajectory_planner"):
+        env_type = "landing_pad"
 
     # Use standardized scenario setup
     obstacle_agents_x, obstacle_agents_v, obstacle_agents_target = setup_standardized_scenario(env_type)
@@ -363,9 +443,38 @@ def main():
         target_moving = [np.array(d['goal']) for d in drones]
         ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
-        # Cargo configs — read directly from each drone entry
+        # Final submission branch: command selects the track first. Legacy
+        # config-only runs still infer the track from the JSON fields.
+        policy_recipe = scenario_config.get('policy') if env_type == 'landing_pad' else None
+        use_planner = scenario_config.get('use_trajectory_planner', False)
+        if track_name == "yield_control":
+            if policy_recipe is None:
+                raise ValueError("yield_control requires a config with a `policy` block.")
+            use_planner = False
+        elif track_name == "trajectory_planner":
+            policy_recipe = None
+            use_planner = True
+        if policy_recipe is not None and use_planner:
+            raise ValueError("Config must choose either `policy` or `use_trajectory_planner`, not both.")
+
+        # Cargo configs -- read directly from each drone entry when a track
+        # needs priority/expiry/acuity metadata.
         cargo_configs = None
-        if scenario_config.get('use_priority', False) and env_type == 'landing_pad':
+        uses_policy_cargo = False
+        if policy_recipe is not None:
+            selector_name = policy_recipe.get('selector', 'closest_first')
+            negotiators = policy_recipe.get('negotiators') or []
+            uses_policy_cargo = (
+                selector_name == 'priority'
+                or 'expiry_guard' in negotiators
+                or 'eta_switch' in negotiators
+                or 'llm_negotiator' in negotiators
+            )
+        if env_type == 'landing_pad' and (
+            use_planner
+            or scenario_config.get('use_priority', False)
+            or uses_policy_cargo
+        ):
             cargo_configs = [
                 {
                     'cargo_type': d['cargo_type'],
@@ -375,50 +484,52 @@ def main():
                 for d in drones
             ]
 
-        # Orbit params — only used when use_orbit is true
-        orbit_params = None
-        if scenario_config.get('use_orbit', False) and cargo_configs is not None:
-            orbit_params = {
-                'orbit_radius':   scenario_config.get('orbit_radius',  0.7),
-                'orbit_speed':    scenario_config.get('orbit_speed',   0.15),
-                'safe_distance':  scenario_config.get('safe_distance', 1.2),
-                'use_hysteresis': scenario_config.get('use_hysteresis', True),
-            }
-
-        # Negotiation params - Phase 4, supersedes orbit_params when present
-        negotiation_params = None
-        if scenario_config.get('use_negotiation', False) and cargo_configs is not None:
-            negotiation_params = {
-                'orbit_radius':   scenario_config.get('orbit_radius',   0.7),
-                'orbit_speed':    scenario_config.get('orbit_speed',    0.15),
-                'safe_distance':  scenario_config.get('safe_distance',  1.2),
-                'nominal_speed':  scenario_config.get('nominal_speed',  0.1),
-                'eta_threshold':  scenario_config.get('eta_threshold',  0.15),
-                'use_hysteresis': scenario_config.get('use_hysteresis', True),
-            }
-
-        # Round-trip params - Phase 6, supersedes negotiation_params when present
         round_trip_params = None
-        if scenario_config.get('round_trip', False) and cargo_configs is not None:
+        if use_planner and cargo_configs is not None:
             # Per-drone return points: explicit `return_point` field if
-            # present, else fall back to the drone's start position.
+            # present, else fall back to the drone's start position. Used
+            # for the OUTBOUND leg of every scenario (n_trips==1 still flies
+            # home; n_trips>=2 keeps shuttling).
             return_points = [
                 np.array(d.get('return_point', d['start']), dtype=float)
                 for d in drones
             ]
             round_trip_params = {
-                'return_points': return_points,
-                'n_trips':        scenario_config.get('n_trips',       2),
-                'unload_steps':   scenario_config.get('unload_steps',  5),
-                'orbit_radius':   scenario_config.get('orbit_radius',  0.7),
-                'orbit_speed':    scenario_config.get('orbit_speed',   0.15),
-                'safe_distance':  scenario_config.get('safe_distance', 1.2),
-                'nominal_speed':  scenario_config.get('nominal_speed', 0.1),
-                'eta_threshold': scenario_config.get('eta_threshold', 0.15),
-                'use_hysteresis': scenario_config.get('use_hysteresis', True),
+                'use_trajectory_planner': True,
+                'return_points':  return_points,
+                'n_trips':        scenario_config.get('n_trips',      1),
+                'unload_steps':   scenario_config.get('unload_steps', 5),
+                'max_speed':      scenario_config.get('max_speed',      1.0),
+                'min_separation': scenario_config.get('min_separation', 1.0),
+                'safe_distance':  scenario_config.get('safe_distance',  1.2),
+                'nominal_speed':  scenario_config.get('nominal_speed',  0.1),
             }
+            if scenario_config.get('use_llm_advisor', False):
+                round_trip_params['llm_advisor'] = {
+                    'enabled': True,
+                    'mode': scenario_config.get('llm_mode', 'explain'),
+                    'cache_steps': scenario_config.get('llm_cache_steps', 25),
+                    'model': scenario_config.get('llm_model'),
+                }
 
-        print(f"[Config mode] env={env_type}, drones={num_moving_drones}, priority={scenario_config.get('use_priority', False)}, orbit={scenario_config.get('use_orbit', False)}, negotiation={scenario_config.get('use_negotiation', False)}")
+        if policy_recipe is not None:
+            if policy_recipe.get('lifecycle') == 'round_trip':
+                policy_recipe = dict(policy_recipe)
+                policy_recipe['return_points'] = [
+                    np.array(d.get('return_point', d['start']), dtype=float)
+                    for d in drones
+                ]
+            print(
+                f"[Config mode] env={env_type}, drones={num_moving_drones}, "
+                f"track=yield_control, selector={policy_recipe.get('selector')}, "
+                f"yielder={policy_recipe.get('yielder')}, "
+                f"lifecycle={policy_recipe.get('lifecycle')}, "
+                f"negotiators={policy_recipe.get('negotiators') or []}"
+            )
+        else:
+            print(f"[Config mode] env={env_type}, drones={num_moving_drones}, "
+                  f"track=trajectory_planner, mode={trajectory_mode}, planner={use_planner}, "
+                  f"llm_advisor={scenario_config.get('use_llm_advisor', False)}")
         for i, d in enumerate(drones):
             print(f"  Drone {i}: start={d['start']}, goal={d['goal']}")
 
@@ -493,26 +604,25 @@ def main():
 
         ini_v_moving = [np.zeros(2) for _ in range(num_moving_drones)]
 
-        # --- Phase 2/3: Cargo priority / orbit configuration (landing_pad only) ---
+        # --- Cargo priority configuration (landing_pad only) ---
+        # Track 2 interactive mode does not build planner/round-trip params;
+        # use config-file mode (`configs/trajectory_planner/*.json`) for actual runs.
         cargo_configs = None
-        orbit_params = None
+        policy_recipe = None
+        round_trip_params = None
         if env_type == 'landing_pad':
-            # Load defaults from phase2 scenario config
-            phase2_cfg_path = Path(__file__).resolve().parent / 'scenarios' / 'phase2_landing_pad.json'
-            with open(phase2_cfg_path, 'r') as f:
-                phase2_cfg = json.load(f)
+            default_cfg_path = Path(__file__).resolve().parent / 'configs' / 'trajectory_planner' / 'baseline_oneway.json'
+            with open(default_cfg_path, 'r') as f:
+                default_cfg = json.load(f)
             default_cargos = [
                 {'cargo_type': d['cargo_type'], 'time_to_expiry': d['time_to_expiry'], 'patient_acuity': d['patient_acuity']}
-                for d in phase2_cfg['drones']
+                for d in default_cfg['drones']
             ]
 
             print("\n--- Cargo Priority Configuration ---")
             print("Cargo types: organ, blood_product, medication, equipment")
             print("Patient acuity: critical, urgent, routine")
             use_priority = get_input("Enable priority-based yielding? (y/n)", 'y', str)
-            orbit_params = None  # interactive mode does not support orbit
-            negotiation_params = None
-            round_trip_params = None  # interactive mode does not support round trip
             if use_priority.lower() == 'y':
                 cargo_configs = []
                 for i in range(num_moving_drones):
@@ -530,7 +640,22 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
-    result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, orbit_params=orbit_params, negotiation_params=negotiation_params, round_trip_params=round_trip_params)
+    run_start = time.perf_counter()
+    result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, policy_recipe=policy_recipe, round_trip_params=round_trip_params, trajectory_mode=trajectory_mode)
+    runtime_seconds = time.perf_counter() - run_start
+    print(f"Total simulation runtime: {runtime_seconds:.3f} seconds")
+    if track_name in ("yield_control", "trajectory_planner"):
+        metrics_path = write_run_metrics(
+            track_name=track_name,
+            trajectory_mode=trajectory_mode,
+            scenario_config=scenario_config,
+            config_path=config_path,
+            num_moving_drones=num_moving_drones,
+            max_steps=max_steps,
+            completion_step=completion_step,
+            runtime_seconds=runtime_seconds,
+        )
+        print(f"Run metrics saved as {metrics_path}")
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:
@@ -538,27 +663,26 @@ def main():
     
     if result:
         print("\nSimulation completed successfully!")
-        # Tag the filename with the active controller so phases don't overwrite each other
         if round_trip_params is not None:
-            controller_tag = 'round_trip'
-        elif negotiation_params is not None:
-            controller_tag = 'negotiation'
-        elif orbit_params is not None:
-            controller_tag = 'orbit'
-        elif cargo_configs is not None:
-            controller_tag = 'priority'
+            controller_tag = 'planner'
+        elif policy_recipe is not None:
+            controller_tag = (
+                f"{policy_recipe.get('lifecycle','one_way')}"
+                f"_{policy_recipe.get('selector','closest_first')}"
+                f"_{policy_recipe.get('yielder','freeze')}"
+            )
         else:
             controller_tag = 'base'
         # Include config file stem so different test scenarios don't overwrite each other
         if scenario_config and scenario_config.get('test_name'):
             gif_filename = f"{scenario_config['test_name']}.gif"
-        elif len(sys.argv) > 2 and sys.argv[2].endswith('.json'):
-            config_stem = Path(sys.argv[2]).stem  # e.g. phase4_expiry_guard_test
+        elif config_path is not None:
+            config_stem = config_path.stem
             gif_filename = f"{config_stem}.gif"
         else:
             gif_filename = f"{env_type}_{num_moving_drones}agents_{controller_tag}.gif"
         agent_summary = f"{num_moving_drones}_{controller_tag}"
-        generate_animation_standardized(agent_list, min_radius, filename=gif_filename, num_moving_agents=num_moving_drones, scenario_type=env_type, agent_summary=agent_summary, frame_log=frame_log)
+        generate_animation_standardized(agent_list, min_radius, filename=gif_filename, num_moving_agents=num_moving_drones, scenario_type=env_type, agent_summary=agent_summary, frame_log=frame_log, track_name=track_name)
     else:
         print("\nSimulation failed to find a solution.")
 

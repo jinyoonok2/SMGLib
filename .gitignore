@@ -137,6 +137,11 @@ savefig/
 Trajectrory/
 path_deviation/
 
+# Local report helper script
+src/methods/Social-IMPC-DR/export_report_figures.py
+figures/
+main.tex
+
 # Generated data files (but allow logs folder)
 *.csv
 *.txt

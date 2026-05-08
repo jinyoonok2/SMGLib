@@ -27,10 +27,8 @@ def get_input(prompt, default, type_cast=str):
 def _impc_logs_dirs():
     root_dir = Path(__file__).resolve().parents[3]
     anim_dir = root_dir / 'logs' / 'Social-IMPC-DR' / 'animations'
-    traj_dir = root_dir / 'logs' / 'Social-IMPC-DR' / 'trajectories'
     anim_dir.mkdir(parents=True, exist_ok=True)
-    traj_dir.mkdir(parents=True, exist_ok=True)
-    return anim_dir, traj_dir
+    return anim_dir
 
 
 def save_video(frames, filename=None, fps=5, scenario_type='impc', agent_summary='default'):
@@ -41,7 +39,7 @@ def save_video(frames, filename=None, fps=5, scenario_type='impc', agent_summary
 
 def save_gif(agent_list, r_min, filename=None, fps=5, num_moving_agents=None, scenario_type='impc', agent_summary='default'):
     """Save animation as GIF file."""
-    anim_dir, _ = _impc_logs_dirs()
+    anim_dir = _impc_logs_dirs()
     if filename is None:
         filename = anim_dir / f"{scenario_type}_{agent_summary}agents.gif"
     else:
