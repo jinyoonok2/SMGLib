@@ -304,6 +304,8 @@ each other.
 | `trajectory_planner/baseline_oneway.json`                    | 2     | simultaneous flight, single delivery               |
 | `trajectory_planner/baseline_round_trip.json`                | 2     | 2 trips each, full Source -> Pad -> Source loop    |
 | `trajectory_planner/llm_explain.json`               | 2     | planner plus explanation-only LLM advisor          |
+| `trajectory_planner/baseline_expiry_compare.json`   | 2     | deterministic baseline for expiry-risk comparison  |
+| `trajectory_planner/llm_score_adjust_expiry.json`   | 2     | Shariq LLM score-adjust expiry-risk experiment     |
 | `trajectory_planner/lookahead_oneway.json`          | 2     | Leonardo finite-horizon lookahead planner          |
 
 Each GIF below is the output of running the matching config from
@@ -339,8 +341,12 @@ python app2_standardized.py trajectory_planner baseline configs/trajectory_plann
 # Round-trip planner scenario
 python app2_standardized.py trajectory_planner baseline configs/trajectory_planner/baseline_round_trip.json
 
-# Shariq LLM advisor/explanation mode
+# Shariq LLM advisor/explanation mode (no behavior change)
 python app2_standardized.py trajectory_planner llm configs/trajectory_planner/llm_explain.json
+
+# Shariq LLM score-adjust expiry-risk experiment
+python app2_standardized.py trajectory_planner baseline configs/trajectory_planner/baseline_expiry_compare.json
+python app2_standardized.py trajectory_planner llm configs/trajectory_planner/llm_score_adjust_expiry.json
 
 # Leonardo finite-horizon lookahead planner
 python app2_standardized.py trajectory_planner lookahead configs/trajectory_planner/lookahead_oneway.json
@@ -358,8 +364,14 @@ python app2_standardized.py yield_control configs/yield_control/llm_negotiator.j
 Outputs (per run):
 
 - `logs/Social-IMPC-DR/animations/<track>/<test_name>.gif`
+- `logs/Social-IMPC-DR/metrics/<track>/<test_name>_metrics.csv`
 - `avg_delta_velocity_robot_*.csv`, `path_deviation_robot_*.csv`,
   `ttg_impc_dr.csv`, `completion_step.txt` in the run directory
+
+The metrics CSV records `completion_step`, `max_steps`, total
+`runtime_seconds`, and run metadata. These files can be used to build a report
+table comparing trajectory-planner modes such as `baseline`, `llm`, and
+`lookahead`.
 
 Verbose console output includes a periodic schedule dump:
 
@@ -439,7 +451,7 @@ Track 1 policy example:
 | `n_trips`                  | `1` for one-way, `>=2` for round-trip                    |
 | `use_priority`             | Required so cargo metadata is loaded into the drones     |
 | `use_llm_advisor`          | Optional; enables `TrajectoryLLMAdvisor`                 |
-| `llm_mode`                 | `explain` for no behavior change; `score_adjust` is future behavior-changing mode |
+| `llm_mode`                 | `explain` for no behavior change; `score_adjust` to adjust priority scores before scheduling |
 | `llm_cache_steps`          | Reuses an LLM response for equivalent schedules over N steps |
 | `llm_model`                | Optional Anthropic model override                        |
 
@@ -450,7 +462,9 @@ set ANTHROPIC_API_KEY=your-key-here
 ```
 
 If the key is missing, the advisor prints a warning and the planner
-continues unchanged.
+continues unchanged. In `score_adjust` mode, the LLM can change the priority
+scores used for trajectory-planner ranking, but the deterministic planner still
+computes arrival times, speed caps, pad spacing, and lifecycle transitions.
 
 The legacy `use_orbit` and `use_negotiation` flags from the Phase 1-6
 chain are no longer used directly; yield behavior is now selected through

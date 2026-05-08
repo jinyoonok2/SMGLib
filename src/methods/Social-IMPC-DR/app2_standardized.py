@@ -2,12 +2,14 @@ import numpy as np
 import sys
 import os
 import json
+import time
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.animation import FuncAnimation
 import matplotlib.lines as mlines
 from test import PLAN
 from plot import plot_trajectory
+from run_metrics import write_run_metrics
 from pathlib import Path
 
 # Import standardized environment configuration
@@ -638,7 +640,22 @@ def main():
     num_drones = len(ini_x)
     
     print("\nStarting simulation...")
+    run_start = time.perf_counter()
     result, agent_list, completion_step, frame_log = PLAN(num_drones, ini_x, ini_v, target, min_radius, epsilon, step_size, k_value, max_steps, num_moving_drones=num_moving_drones, wall_collision_multiplier=wall_collision_multiplier, verbose=verbose_mode, env_type=env_type, cargo_configs=cargo_configs, policy_recipe=policy_recipe, round_trip_params=round_trip_params, trajectory_mode=trajectory_mode)
+    runtime_seconds = time.perf_counter() - run_start
+    print(f"Total simulation runtime: {runtime_seconds:.3f} seconds")
+    if track_name in ("yield_control", "trajectory_planner"):
+        metrics_path = write_run_metrics(
+            track_name=track_name,
+            trajectory_mode=trajectory_mode,
+            scenario_config=scenario_config,
+            config_path=config_path,
+            num_moving_drones=num_moving_drones,
+            max_steps=max_steps,
+            completion_step=completion_step,
+            runtime_seconds=runtime_seconds,
+        )
+        print(f"Run metrics saved as {metrics_path}")
     
     # Save completion step for Flow Rate calculation
     with open("completion_step.txt", "w") as f:

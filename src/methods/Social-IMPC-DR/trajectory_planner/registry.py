@@ -3,11 +3,12 @@
 Mode names are part of the final submission interface:
 
 - ``baseline``: current speed-scaled planner.
-- ``llm``: reserved for Shariq's trajectory-planner method. For now this
-  runs the baseline planner with the existing explanation advisor hook.
+- ``llm``: Shariq's score-adjust planner. The deterministic trajectory
+  planner remains responsible for scheduling, while the LLM advisor can
+  adjust priority scores before ranking inbound drones.
 - ``lookahead``: reserved for Leonardo's upgraded look-ahead planner.
 - ``compare_all``: reserved for evaluation runs across all planner modes.
-  Until the missing modes land, it runs the baseline controller.
+  For now it runs the baseline controller.
 """
 
 from .baseline import TrajectoryPlannerController
@@ -38,14 +39,14 @@ def build_trajectory_controller(mode, cargo_configs, planner_params, target, ini
     llm_advisor = None
     llm_params = planner_params.get("llm_advisor")
     if mode == "llm" and llm_params is None:
-        llm_params = {"enabled": True, "mode": "explain"}
+        llm_params = {"enabled": True, "mode": "score_adjust"}
         print(
-            "[TrajectoryPlanner] llm mode currently uses the baseline planner "
-            "with the explanation advisor hook."
+            "[TrajectoryPlanner] llm mode uses LLM score adjustment before "
+            "ranking inbound drones."
         )
     if llm_params and llm_params.get("enabled", False):
         llm_advisor = TrajectoryLLMAdvisor(
-            mode=llm_params.get("mode", "explain"),
+            mode=llm_params.get("mode", "score_adjust" if mode == "llm" else "explain"),
             model=llm_params.get("model"),
             cache_steps=llm_params.get("cache_steps", 25),
         )
