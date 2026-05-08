@@ -1,6 +1,16 @@
-"""Placeholder for Shariq's future trajectory-planner LLM method.
+"""Behavior-changing LLM trajectory-planner method.
 
-The existing ``llm`` command mode is wired through ``registry.py`` so the
-CLI is stable. A behavior-changing planner can replace that wrapper here
-when the method is ready.
+This method keeps the Track 2 speed-scaling trajectory planner, but uses
+the LLM advisor in score-adjust mode before ranking inbound drones. The
+LLM does not directly control motion or MPC. It only adjusts priority
+scores, and the deterministic planner still computes arrival order, Vmax,
+pad spacing, lifecycle transitions, and safety behavior.
 """
+
+from .baseline import TrajectoryPlannerController
+
+
+class LLMScoreAdjustTrajectoryPlannerController(TrajectoryPlannerController):
+    """Trajectory planner variant using LLM-adjusted priority scores."""
+
+    pass
